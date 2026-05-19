@@ -1,17 +1,17 @@
 import { BABY, ELEPHANT, GIRAFFE, CHICKEN, LION, EMPTY, type GameState } from '../engine/types';
 
 const PIECES = [
-  { piece: LION,     label: 'ら' },
-  { piece: GIRAFFE,  label: 'き' },
-  { piece: ELEPHANT, label: 'ぞ' },
-  { piece: CHICKEN,  label: 'に' },
-  { piece: BABY,     label: 'ひ' },
+  { piece: LION,     label: '🦁' },
+  { piece: GIRAFFE,  label: '🦒' },
+  { piece: ELEPHANT, label: '🐘' },
+  { piece: CHICKEN,  label: '🐓' },
+  { piece: BABY,     label: '🐤' },
 ];
 
 const HAND_PIECES = [
-  { piece: GIRAFFE,  label: 'き' },
-  { piece: ELEPHANT, label: 'ぞ' },
-  { piece: BABY,     label: 'ひ' },
+  { piece: GIRAFFE,  label: '🦒' },
+  { piece: ELEPHANT, label: '🐘' },
+  { piece: BABY,     label: '🐤' },
 ];
 
 interface Props {
