@@ -19,9 +19,10 @@ export interface GameState {
 }
 
 export interface MoveRecord {
-  notation: string;  // "B4B3" or "P*B3"
+  notation: string;  // raw: "B4B3P" or "P*B3"
   from?: [number, number];
   to: [number, number];
+  turn: Player;
 }
 
 export interface BoardMove {

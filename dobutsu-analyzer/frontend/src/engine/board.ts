@@ -4,14 +4,12 @@ import {
 } from './types';
 
 // 方向ベクトル (dx, dy) — Rust board.rs と同一
-// dy<0: 後手側(y=0), dy>0: 先手側(y=3)
 const DIRS: [number, number][] = [
   [1, -1], [0, -1], [-1, -1],
   [1,  0],          [-1,  0],
   [1,  1], [0,  1], [-1,  1],
 ];
 
-// 駒種ごとの移動方向ビットマスク (index = pieceType - 1)
 const CAN_MOVE = [0x02, 0xa5, 0x5a, 0x5f, 0xff];
 
 function colChar(x: number): string { return 'CBA'[x]; }
@@ -20,14 +18,90 @@ function pieceChar(p: number): string {
   return ['', 'P', 'E', 'G', 'C', 'L'][p] ?? '?';
 }
 
+// ──────────────────────────────────────────────────────────
+// 将棋風表記変換
+// raw notation:
+//   盤上: "B3B2P" or "B3B1P+" (src2 + dst2 + pieceChar + 成り?)
+//   打ち: "P*B3"               (pieceChar + * + dst2)
+// ──────────────────────────────────────────────────────────
+const COL_NUM: Record<string, string> = { 'A': '3', 'B': '2', 'C': '1' };
+const ROW_KAN: Record<string, string> = { '1': '一', '2': '二', '3': '三', '4': '四' };
+const PIECE_JP: Record<string, string> = { 'P': 'ひ', 'E': 'ぞ', 'G': 'き', 'C': 'に', 'L': 'ら' };
+
+// 棋譜用: 座標はそのまま(B3B2)、▲△・打・成だけ付ける
+// 例: ▲B2 / △C2ひ打 / ▲B1成
+export function toKifuNotation(raw: string, turn: 'black' | 'white'): string {
+  const mark = turn === 'black' ? '▲' : '△';
+  if (raw.includes('*')) {
+    const [pc, dest] = raw.split('*');
+    return `${mark}${dest}${PIECE_JP[pc] ?? pc}打`;
+  }
+  const promoted = raw[5] === '+';
+  const pc = PIECE_JP[raw[4]] ?? '';
+  return `${mark}${raw.slice(2, 4)}${pc}${promoted ? '成' : ''}`;
+}
+
+export function toShogiNotation(raw: string, turn: 'black' | 'white'): string {
+  const mark = turn === 'black' ? '▲' : '△';
+  if (raw.includes('*')) {
+    const [pc, dest] = raw.split('*');
+    return `${mark}${COL_NUM[dest[0]] ?? dest[0]}${ROW_KAN[dest[1]] ?? dest[1]}${PIECE_JP[pc] ?? pc}打`;
+  }
+  const promoted = raw[5] === '+';
+  const pc = PIECE_JP[raw[4]] ?? '?';
+  const col = COL_NUM[raw[2]] ?? raw[2];
+  const row = ROW_KAN[raw[3]] ?? raw[3];
+  return `${mark}${col}${row}${pc}${promoted ? '成' : ''}`;
+}
+
+// API レスポンスの手表記 ("B4B3" or "P*B3") をキフ形式に変換
+// 例: ▲B3ひ / △ひ打B2 — toKifuNotation と同じフォーマット
+export function apiMoveToKifu(mv: string, board: number[][], isBlackMove: boolean): string {
+  const mark = isBlackMove ? '▲' : '△';
+  const COL_X: Record<string, number> = { 'A': 2, 'B': 1, 'C': 0 };
+  const ROW_Y: Record<string, number> = { '1': 0, '2': 1, '3': 2, '4': 3 };
+  if (mv.includes('*')) {
+    const [pc, dest] = mv.split('*');
+    return `${mark}${dest}${PIECE_JP[pc] ?? pc}打`;
+  }
+  const sx = COL_X[mv[0]], sy = ROW_Y[mv[1]];
+  const piece = isBlackMove
+    ? Math.abs(board[sx]?.[sy] ?? 0)
+    : Math.abs(board[2 - sx]?.[3 - sy] ?? 0);
+  const pc = PIECE_JP[pieceChar(piece)] ?? '';
+  return `${mark}${mv.slice(2, 4)}${pc}`;
+}
+
+// API レスポンスの手表記 ("B4B3" or "P*B3") を将棋風に変換
+// board: 現在の盤面状態（駒名取得用）、isBlackMove: 先手の手かどうか
+export function apiMoveToShogi(mv: string, board: number[][], isBlackMove: boolean): string {
+  const mark = isBlackMove ? '▲' : '△';
+  const COL_X: Record<string, number> = { 'A': 2, 'B': 1, 'C': 0 };
+  const ROW_Y: Record<string, number> = { '1': 0, '2': 1, '3': 2, '4': 3 };
+  if (mv.includes('*')) {
+    const [pc, dest] = mv.split('*');
+    return `${mark}${COL_NUM[dest[0]] ?? dest[0]}${ROW_KAN[dest[1]] ?? dest[1]}${PIECE_JP[pc] ?? pc}打`;
+  }
+  // 盤上の手: APIのnotationは正規化後(current player視点)
+  // 先手の手なら盤面からそのまま取得、後手の手は回転座標
+  const sx = COL_X[mv[0]], sy = ROW_Y[mv[1]];
+  let piece = 0;
+  if (isBlackMove) {
+    piece = Math.abs(board[sx]?.[sy] ?? 0);
+  } else {
+    // 後手の手: API座標は後手視点(回転後)なので元座標に戻す
+    piece = Math.abs(board[2 - sx]?.[3 - sy] ?? 0);
+  }
+  const pc = PIECE_JP[pieceChar(piece)] ?? '?';
+  return `${mark}${COL_NUM[mv[2]] ?? mv[2]}${ROW_KAN[mv[3]] ?? mv[3]}${pc}`;
+}
+
 export function initialState(): GameState {
   const board: number[][] = Array.from({ length: 3 }, () => new Array(4).fill(EMPTY));
-  // 後手 (WHITE = 負値)
   board[0][0] = -ELEPHANT; // C1
   board[1][0] = -LION;     // B1
   board[2][0] = -GIRAFFE;  // A1
   board[1][1] = -BABY;     // B2
-  // 先手 (BLACK = 正値)
   board[1][2] = BABY;      // B3
   board[0][3] = GIRAFFE;   // C4
   board[1][3] = LION;      // B4
@@ -40,7 +114,6 @@ export function initialState(): GameState {
   };
 }
 
-// 先手の合法手を生成 (board は常に先手視点)
 function legalMovesForBlack(state: GameState): Move[] {
   const { board, hand } = state;
   const moves: Move[] = [];
@@ -48,21 +121,22 @@ function legalMovesForBlack(state: GameState): Move[] {
   for (let x = 0; x < 3; x++) {
     for (let y = 0; y < 4; y++) {
       const p = board[x][y];
-      if (p <= 0) continue; // 空 or 後手駒
+      if (p <= 0) continue;
       const ptype = p - 1;
       for (let d = 0; d < 8; d++) {
         if ((CAN_MOVE[ptype] & (1 << d)) === 0) continue;
         const [dx, dy] = DIRS[d];
         const nx = x + dx, ny = y + dy;
         if (nx < 0 || nx >= 3 || ny < 0 || ny >= 4) continue;
-        if (board[nx][ny] > 0) continue; // 自駒
-        const notation = `${colChar(x)}${rowChar(y)}${colChar(nx)}${rowChar(ny)}`;
+        if (board[nx][ny] > 0) continue;
+        const promote = p === BABY && ny === 0;
+        // raw notation: src + dst + pieceChar + '+'(成り)
+        const notation = `${colChar(x)}${rowChar(y)}${colChar(nx)}${rowChar(ny)}${pieceChar(p)}${promote ? '+' : ''}`;
         moves.push({ from: [x, y], to: [nx, ny], notation } as BoardMove);
       }
     }
   }
 
-  // 打ち駒
   for (let pt = BABY; pt <= GIRAFFE; pt++) {
     if (hand.black[pt - 1] === 0) continue;
     for (let y = 0; y < 4; y++) {
@@ -79,13 +153,14 @@ function legalMovesForBlack(state: GameState): Move[] {
 
 export function legalMoves(state: GameState): Move[] {
   if (state.turn === 'black') return legalMovesForBlack(state);
-  // 後手の手: rotate して先手の合法手を生成し、座標を元の盤面に戻す
   const moves = legalMovesForBlack(rotateState(state));
   return moves.map(m => {
     if ('from' in m) {
       const from: [number, number] = [2 - m.from[0], 3 - m.from[1]];
       const to: [number, number] = [2 - m.to[0], 3 - m.to[1]];
-      const notation = `${'CBA'[from[0]]}${from[1] + 1}${'CBA'[to[0]]}${to[1] + 1}`;
+      // notationのsrc/dstを変換、駒情報(char4以降)はそのまま
+      const suffix = m.notation.slice(4);
+      const notation = `${'CBA'[from[0]]}${from[1] + 1}${'CBA'[to[0]]}${to[1] + 1}${suffix}`;
       return { from, to, notation } as BoardMove;
     }
     const to: [number, number] = [2 - m.to[0], 3 - m.to[1]];
@@ -94,14 +169,9 @@ export function legalMoves(state: GameState): Move[] {
   });
 }
 
-// 着手を適用して新しい GameState を返す
 export function applyMove(state: GameState, move: Move): GameState {
   const board = state.board.map(col => [...col]);
-  const hand = {
-    black: [...state.hand.black],
-    white: [...state.hand.white],
-  };
-
+  const hand = { black: [...state.hand.black], white: [...state.hand.white] };
   const isBlack = state.turn === 'black';
 
   if ('from' in move) {
@@ -109,47 +179,32 @@ export function applyMove(state: GameState, move: Move): GameState {
     const [tx, ty] = move.to;
     const piece = board[fx][fy];
     const captured = board[tx][ty];
-
-    // 取り: 持ち駒に加える (にわとり→ひよこに戻す)
     if (captured !== EMPTY) {
-      const capType = Math.min(Math.abs(captured), GIRAFFE); // CHICKEN→BABY
+      const capType = Math.abs(captured) === CHICKEN ? BABY : Math.abs(captured); // 鶏→雛に戻す
       if (isBlack) hand.black[capType - 1]++;
       else hand.white[capType - 1]++;
     }
-
     board[fx][fy] = EMPTY;
-    // 成り: ひよこが相手陣1段目へ
     const promote = Math.abs(piece) === BABY && (isBlack ? ty === 0 : ty === 3);
-    const newPiece = promote
-      ? (isBlack ? CHICKEN : -CHICKEN)
-      : piece;
-    board[tx][ty] = newPiece;
+    board[tx][ty] = promote ? (isBlack ? CHICKEN : -CHICKEN) : piece;
   } else {
     const [tx, ty] = move.to;
     const pt = (move as DropMove).piece;
-    if (isBlack) {
-      hand.black[pt - 1]--;
-      board[tx][ty] = pt;
-    } else {
-      hand.white[pt - 1]--;
-      board[tx][ty] = -pt;
-    }
+    if (isBlack) { hand.black[pt - 1]--; board[tx][ty] = pt; }
+    else { hand.white[pt - 1]--; board[tx][ty] = -pt; }
   }
 
-  const record: MoveRecord = { notation: move.notation, to: move.to };
+  const record: MoveRecord = { notation: move.notation, to: move.to, turn: state.turn };
   if ('from' in move) record.from = move.from;
 
   return {
-    board,
-    hand,
+    board, hand,
     turn: state.turn === 'black' ? 'white' : 'black',
     history: [...state.history, record],
   };
 }
 
-// 勝利判定: ライオンを取ったか、トライ成功か
-export function checkWinner(state: GameState, lastMove: Move | null): 'black' | 'white' | null {
-  // ライオンが盤上にいるか確認
+export function checkWinner(state: GameState, _lastMove: Move | null): 'black' | 'white' | null {
   let blackLion = false, whiteLion = false;
   for (let x = 0; x < 3; x++) {
     for (let y = 0; y < 4; y++) {
@@ -160,16 +215,18 @@ export function checkWinner(state: GameState, lastMove: Move | null): 'black' | 
   if (!whiteLion) return 'black';
   if (!blackLion) return 'white';
 
-  // トライ: 先手ライオンが1段目(y=0)に到達
+  const opMoves = legalMoves(state);
   for (let x = 0; x < 3; x++) {
-    if (state.board[x][0] === LION) return 'black';
-    if (state.board[x][3] === -LION) return 'white';
+    if (state.board[x][0] === LION) {
+      if (!opMoves.some(m => m.to[0] === x && m.to[1] === 0)) return 'black';
+    }
+    if (state.board[x][3] === -LION) {
+      if (!opMoves.some(m => m.to[0] === x && m.to[1] === 3)) return 'white';
+    }
   }
-
   return null;
 }
 
-// 後手視点に回転 (rotate_change_turn)
 function rotateState(state: GameState): GameState {
   const board: number[][] = Array.from({ length: 3 }, () => new Array(4).fill(EMPTY));
   for (let x = 0; x < 3; x++) {
@@ -186,7 +243,6 @@ function rotateState(state: GameState): GameState {
   };
 }
 
-// API 用 pos パラメータ生成 (田中先生エンコーディング + normalize)
 export function encodeForApi(state: GameState): string {
   const s = state.turn === 'black' ? state : rotateState(state);
   const packed = pack(s);
@@ -211,5 +267,5 @@ function pack(state: GameState): bigint {
 }
 
 function flipBoard(board: number[][]): number[][] {
-  return [board[2], board[1], board[0]]; // x=0↔x=2
+  return [board[2], board[1], board[0]];
 }

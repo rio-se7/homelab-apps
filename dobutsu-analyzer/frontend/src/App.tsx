@@ -1,10 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Board from './components/Board';
 import HandArea from './components/HandArea';
 import EvalChart, { type EvalPoint } from './components/EvalChart';
 import SetupPanel from './components/SetupPanel';
-import { type GameState, type Move, isBoardMove, EMPTY } from './engine/types';
-import { initialState, legalMoves, applyMove, checkWinner, encodeForApi } from './engine/board';
+import { type GameState, type Move, type DropMove, isBoardMove, EMPTY } from './engine/types';
+import {
+  initialState, legalMoves, applyMove, checkWinner,
+  encodeForApi, toKifuNotation, apiMoveToKifu,
+} from './engine/board';
 import { fetchEval, fetchMoves, type MoveEval } from './api/client';
 
 function toScore(result: string, dtm: number, turn: 'black' | 'white'): number {
@@ -20,13 +23,33 @@ export default function App() {
   const [selected, setSelected] = useState<[number, number] | null>(null);
   const [selectedDrop, setSelectedDrop] = useState<number | null>(null);
   const [validMoves, setValidMoves] = useState<Move[]>([]);
-  const [moveEvals, setMoveEvals] = useState<MoveEval[]>([]);
+  const [blackMoveEvals, setBlackMoveEvals] = useState<MoveEval[]>([]);
+  const [whiteMoveEvals, setWhiteMoveEvals] = useState<MoveEval[]>([]);
   const [evalHistory, setEvalHistory] = useState<EvalPoint[]>([]);
   const [winner, setWinner] = useState<'black' | 'white' | null>(null);
   const [evalError, setEvalError] = useState<string | null>(null);
   const [flipped, setFlipped] = useState(false);
   const [setupMode, setSetupMode] = useState(false);
   const [setupPiece, setSetupPiece] = useState<number | null>(null);
+  const [cellSize, setCellSize] = useState(80);
+  const boardAreaRef = useRef<HTMLDivElement>(null);
+
+  // 盤面コンテナのサイズに合わせてセルサイズを計算
+  useEffect(() => {
+    const el = boardAreaRef.current;
+    if (!el) return;
+    const calc = () => {
+      // 高さ: コンテナ高 - HandArea×2(約52px) - ボタン列(約44px) - ラベル(約20px) を 4行で割る
+      const fromH = Math.floor((el.clientHeight - 116) / 4);
+      // 幅: コンテナ幅 - ラベル(約30px) を 3列で割る
+      const fromW = Math.floor((el.clientWidth - 30) / 3);
+      setCellSize(Math.max(60, Math.min(fromH, fromW, 260)));
+    };
+    const obs = new ResizeObserver(calc);
+    obs.observe(el);
+    calc();
+    return () => obs.disconnect();
+  }, []);
 
   // 初期評価
   useEffect(() => {
@@ -36,15 +59,21 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
-  // 局面変化ごとに合法手 + 評価を取得
+  // 局面変化ごとに両者の合法手と評価を取得
   useEffect(() => {
     if (winner || setupMode) return;
     setValidMoves(legalMoves(gameState));
-    const pos = encodeForApi(gameState);
     setEvalError(null);
-    fetchMoves(pos)
-      .then(r => setMoveEvals(r.moves))
+
+    const blackPos = encodeForApi({ ...gameState, turn: 'black' });
+    const whitePos = encodeForApi({ ...gameState, turn: 'white' });
+
+    fetchMoves(blackPos)
+      .then(r => setBlackMoveEvals(r.moves))
       .catch(e => setEvalError(String(e)));
+    fetchMoves(whitePos)
+      .then(r => setWhiteMoveEvals(r.moves))
+      .catch(() => {});
   }, [gameState, winner, setupMode]);
 
   const resetGame = useCallback(() => {
@@ -54,7 +83,8 @@ export default function App() {
     setSelected(null);
     setSelectedDrop(null);
     setValidMoves([]);
-    setMoveEvals([]);
+    setBlackMoveEvals([]);
+    setWhiteMoveEvals([]);
     setWinner(null);
     setEvalError(null);
     setSetupMode(false);
@@ -86,7 +116,7 @@ export default function App() {
       setEvalHistory(prev => [...prev, {
         move: newState.history.length,
         score: toScore(r.result, r.dtm, newState.turn),
-        notation: move.notation,
+        notation: toKifuNotation(move.notation, gameState.turn),
       }]);
     }).catch(() => {});
 
@@ -95,7 +125,6 @@ export default function App() {
   }, [gameState]);
 
   const handleCellClick = useCallback((x: number, y: number) => {
-    // セットアップモード
     if (setupMode) {
       if (setupPiece === null) return;
       const newBoard = gameState.board.map(col => [...col]);
@@ -103,23 +132,20 @@ export default function App() {
       setGameState(s => ({ ...s, board: newBoard }));
       return;
     }
-
     if (winner) return;
-
     if (selectedDrop !== null) {
-      const drop = validMoves.find(m => !isBoardMove(m) && m.to[0] === x && m.to[1] === y);
+      const drop = validMoves.find(
+        m => !isBoardMove(m) && (m as DropMove).piece === selectedDrop && m.to[0] === x && m.to[1] === y
+      );
       if (drop) executeMove(drop);
       else setSelectedDrop(null);
       return;
     }
-
     const piece = gameState.board[x][y];
     const isOwnPiece =
       (gameState.turn === 'black' && piece > 0) ||
       (gameState.turn === 'white' && piece < 0);
-
     if (isOwnPiece) { setSelected([x, y]); return; }
-
     if (selected) {
       const mv = validMoves.find(
         m => isBoardMove(m) &&
@@ -137,13 +163,13 @@ export default function App() {
     setSelectedDrop(prev => prev === piece ? null : piece);
   }, [winner, setupMode]);
 
-  // セットアップ完了: 評価を再取得
   const handleSetupDone = useCallback(() => {
     setSetupMode(false);
     setSetupPiece(null);
     setStateHistory([]);
     setWinner(null);
-    setMoveEvals([]);
+    setBlackMoveEvals([]);
+    setWhiteMoveEvals([]);
     const pos = encodeForApi(gameState);
     fetchEval(pos).then(r => {
       setEvalHistory([{ move: 0, score: toScore(r.result, r.dtm, gameState.turn), notation: 'セットアップ局面' }]);
@@ -153,100 +179,100 @@ export default function App() {
   const handleChangeHand = useCallback((player: 'black' | 'white', pieceType: number, delta: number) => {
     setGameState(s => {
       const hand = { black: [...s.hand.black], white: [...s.hand.white] };
-      const idx = pieceType - 1;
-      hand[player][idx] = Math.max(0, hand[player][idx] + delta);
+      hand[player][pieceType - 1] = Math.min(2, Math.max(0, hand[player][pieceType - 1] + delta));
       return { ...s, hand };
     });
   }, []);
 
-  const bestEval = moveEvals[0];
-  const evalLabel = bestEval
-    ? `${bestEval.result === 'win' ? '勝ち' : bestEval.result === 'lose' ? '負け' : '引き分け'} (${bestEval.dtm + 1}手)`
-    : evalError ? '(評価取得エラー)' : '評価中…';
+  // 合法手の評価行（棋譜と同じ形式）
+  function MoveEvalRow({ me, isBlack }: { me: MoveEval; isBlack: boolean }) {
+    const label = apiMoveToKifu(me.mv, gameState.board, isBlack);
+    const bg = me.result === 'win' ? '#d4edda' : me.result === 'lose' ? '#f8d7da' : '#fff3cd';
+    const wdl = me.result === 'win' ? '勝' : me.result === 'lose' ? '負' : '分';
+    return (
+      <div style={{
+        padding: '3px 6px', marginBottom: 2, background: bg,
+        borderRadius: 3, fontSize: 12,
+        display: 'flex', justifyContent: 'space-between', gap: 4,
+      }}>
+        <span style={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{label}</span>
+        <span style={{ color: '#555', whiteSpace: 'nowrap' }}>
+          {wdl}{me.dtm > 0 ? ` ${me.dtm + 1}手` : ''}
+        </span>
+      </div>
+    );
+  }
+
+  const statusText = winner
+    ? `${winner === 'black' ? '先手' : '後手'}の勝ち！`
+    : setupMode ? '局面を設定中'
+    : `${gameState.turn === 'black' ? '先手' : '後手'}の番`;
 
   return (
-    <div style={{ fontFamily: 'sans-serif', padding: 24, display: 'flex', gap: 32, flexWrap: 'wrap' }}>
-      {/* 盤面エリア */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-          <h2 style={{ margin: 0 }}>どうぶつしょうぎ解析</h2>
+    <div style={{ fontFamily: 'sans-serif', padding: 24, display: 'flex', gap: 32, background: '#faf6ee', height: '100vh', boxSizing: 'border-box', overflow: 'hidden' }}>
+      {/* 盤面エリア — 1:2 比率 */}
+      <div ref={boardAreaRef} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', minWidth: 0 }}>
+        <h2 style={{ margin: '0 0 8px', color: '#3a2800' }}>どうぶつしょうぎ解析</h2>
 
-          {/* 盤面反転トグル */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+        <HandArea
+          hand={gameState.hand.white} player="white"
+          onDrop={!setupMode && gameState.turn === 'white' ? handleHandClick : undefined}
+          selectedDrop={gameState.turn === 'white' ? selectedDrop : null}
+        />
+        <Board
+          state={gameState} selected={selected} validMoves={setupMode ? [] : validMoves}
+          onCellClick={handleCellClick} flipped={flipped}
+          setupPiece={setupMode ? setupPiece : undefined}
+          cellSize={cellSize}
+        />
+        <HandArea
+          hand={gameState.hand.black} player="black"
+          onDrop={!setupMode && gameState.turn === 'black' ? handleHandClick : undefined}
+          selectedDrop={gameState.turn === 'black' ? selectedDrop : null}
+        />
+
+        {/* コントローラー */}
+        <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* 誰の番 */}
+          <span style={{ fontSize: 13, color: '#3a2800', fontWeight: 'bold', minWidth: 60 }}>{statusText}</span>
+
+          {!setupMode && (
+            <>
+              <button onClick={undoMove} disabled={stateHistory.length === 0}
+                style={{ padding: '4px 10px', fontSize: 12, opacity: stateHistory.length === 0 ? 0.5 : 1 }}>
+                ← 1手戻る
+              </button>
+              <button onClick={() => { setSetupMode(true); setSelected(null); setSelectedDrop(null); }}
+                style={{ padding: '4px 10px', fontSize: 12 }}>
+                局面設定
+              </button>
+              <button onClick={resetGame} style={{ padding: '4px 10px', fontSize: 12 }}>
+                リセット
+              </button>
+            </>
+          )}
+
+          {/* 後手視点トグル */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', color: '#7a5a1a', marginLeft: 'auto' }}>
             <span>後手視点</span>
-            <div
-              onClick={() => setFlipped(f => !f)}
-              style={{
-                width: 40, height: 22, borderRadius: 11,
-                background: flipped ? '#4a90e2' : '#ccc',
-                position: 'relative', cursor: 'pointer', transition: 'background 0.2s',
-              }}
-            >
+            <div onClick={() => setFlipped(f => !f)} style={{
+              width: 36, height: 20, borderRadius: 10,
+              background: flipped ? '#c8a84a' : '#ccc',
+              position: 'relative', cursor: 'pointer', transition: 'background 0.2s',
+            }}>
               <div style={{
-                width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                position: 'absolute', top: 2,
-                left: flipped ? 20 : 2, transition: 'left 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                position: 'absolute', top: 2, left: flipped ? 18 : 2,
+                transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
               }} />
             </div>
           </label>
         </div>
 
-        <HandArea
-          hand={gameState.hand.white}
-          player="white"
-          onDrop={!setupMode && gameState.turn === 'white' ? handleHandClick : undefined}
-          selectedDrop={gameState.turn === 'white' ? selectedDrop : null}
-        />
-        <Board
-          state={gameState}
-          selected={selected}
-          validMoves={setupMode ? [] : validMoves}
-          onCellClick={handleCellClick}
-          flipped={flipped}
-          setupPiece={setupMode ? setupPiece : undefined}
-        />
-        <HandArea
-          hand={gameState.hand.black}
-          player="black"
-          onDrop={!setupMode && gameState.turn === 'black' ? handleHandClick : undefined}
-          selectedDrop={gameState.turn === 'black' ? selectedDrop : null}
-        />
-
-        {/* 操作ボタン */}
-        <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 14 }}>
-            {winner
-              ? `${winner === 'black' ? '先手' : '後手'}の勝ち！`
-              : setupMode ? '局面を設定中'
-              : `${gameState.turn === 'black' ? '先手' : '後手'}の番`}
-          </span>
-          {!setupMode && (
-            <>
-              <button
-                onClick={undoMove}
-                disabled={stateHistory.length === 0}
-                style={{ padding: '4px 12px', opacity: stateHistory.length === 0 ? 0.5 : 1 }}
-              >
-                ← 1手戻る
-              </button>
-              <button
-                onClick={() => { setSetupMode(true); setSelected(null); setSelectedDrop(null); }}
-                style={{ padding: '4px 12px' }}
-              >
-                局面設定
-              </button>
-              <button onClick={resetGame} style={{ padding: '4px 12px' }}>リセット</button>
-            </>
-          )}
-        </div>
-
-        {/* セットアップパネル */}
         {setupMode && (
           <div style={{ marginTop: 12 }}>
             <SetupPanel
-              state={gameState}
-              selectedPiece={setupPiece}
+              state={gameState} selectedPiece={setupPiece}
               onSelectPiece={setSetupPiece}
               onChangeTurn={turn => setGameState(s => ({ ...s, turn }))}
               onChangeHand={handleChangeHand}
@@ -259,40 +285,45 @@ export default function App() {
 
       {/* 評価パネル */}
       {!setupMode && (
-        <div style={{ minWidth: 300, flex: 1 }}>
-          <h3 style={{ margin: '0 0 12px' }}>完全解析評価</h3>
+        <div style={{ flex: 2, minWidth: 0 }}>
+          <h3 style={{ margin: '0 0 12px', color: '#3a2800' }}>完全解析評価</h3>
           <EvalChart history={evalHistory} />
 
-          <div style={{ fontSize: 14, margin: '12px 0 8px' }}>
-            現局面: <strong>{evalLabel}</strong>
-          </div>
+          {evalError && <div style={{ fontSize: 12, color: '#c00', margin: '8px 0' }}>{evalError}</div>}
 
-          <div>
-            <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>合法手の評価</div>
-            {moveEvals.map((me, i) => (
-              <div key={i} style={{
-                padding: '4px 8px', marginBottom: 2,
-                background: me.result === 'win' ? '#d4edda' : me.result === 'lose' ? '#f8d7da' : '#fff3cd',
-                borderRadius: 4, fontSize: 13,
-                display: 'flex', justifyContent: 'space-between',
-              }}>
-                <span style={{ fontFamily: 'monospace' }}>{me.mv}</span>
-                <span>
-                  {me.result === 'win' ? '勝' : me.result === 'lose' ? '負' : '分'}
-                  {me.dtm > 0 ? ` ${me.dtm + 1}手` : ''}
-                </span>
+          {/* 先手・後手の合法手（横並び） */}
+          <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+            {/* 先手 */}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>
+                ▲先手の合法手
               </div>
-            ))}
+              {blackMoveEvals.map((me, i) => (
+                <MoveEvalRow key={i} me={me} isBlack={true} />
+              ))}
+            </div>
+            {/* 後手 */}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>
+                △後手の合法手
+              </div>
+              {whiteMoveEvals.map((me, i) => (
+                <MoveEvalRow key={i} me={me} isBlack={false} />
+              ))}
+            </div>
           </div>
 
+          {/* 棋譜: コンパクトなフロー表示 */}
           {gameState.history.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>棋譜</div>
-              {gameState.history.map((rec, i) => (
-                <div key={i} style={{ fontSize: 12, fontFamily: 'monospace' }}>
-                  {i + 1}. {rec.notation}
-                </div>
-              ))}
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>棋譜</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 8px', fontSize: 11, fontFamily: 'monospace', color: '#444' }}>
+                {gameState.history.map((rec, i) => (
+                  <span key={i} style={{ whiteSpace: 'nowrap', color: rec.turn === 'black' ? '#333' : '#666' }}>
+                    {i + 1}.{toKifuNotation(rec.notation, rec.turn)}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
         </div>
