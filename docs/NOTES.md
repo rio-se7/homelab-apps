@@ -78,8 +78,8 @@ clubdam.com から採点履歴を自動取得し、可視化と AI フィード�
 
 **Phases:**
 - [x] Phase 1: バックエンド API（`GET /api/eval`, `GET /api/moves`, `GET /health`）
-- [ ] Phase 2: フロントエンド — ゲームエンジン + 盤面UI
-- [ ] Phase 3: 評価グラフ（Recharts、先手/後手評価値の折れ線）
+- [x] Phase 2: フロントエンド — ゲームエンジン + 盤面UI
+- [x] Phase 3: 評価グラフ（Recharts、評価推移折れ線チャート）
 - [ ] Phase 4: 独自探索モード + 完全解析との比較
 - [ ] Phase 5: AI対局・棋譜再生・局面URL共有 等
 
@@ -89,12 +89,25 @@ clubdam.com から採点履歴を自動取得し、可視化と AI フィード�
 - バイナリサーチ: LE バイト列比較ではなく `u64::from_le_bytes()` で数値比較が必要
 - 初期局面 (normalized): `0x0000_200d_51fb_300e` → LOSE/count=77 (後手必勝・78手) ✓
 
+**Phase 2-3 実装メモ (2026-05-19完了):**
+- 人間 vs 人間の対局モード（先手・後手どちらもクリックで指せる）
+- 評価グラフ: 手を指すたびに `+N`(先手有利) / `-N`(後手有利) で推移を可視化
+- 合法手一覧: `/api/moves` から取得、最善手順にソートして表示
+- 後手合法手生成バグ修正: rotate座標→元の盤面座標に変換が必要
+
+**追加実装済み機能 (2026-05-19):**
+- 任意局面セットアップ: 駒パレットから選んで盤面に自由配置、持ち駒設定、手番設定
+- 1手戻る (Undo)
+- 盤面反転トグル（後手視点表示）
+
+**既知の注意点:**
+- `verbatimModuleSyntax: true` (tsconfig) のため型インポートは `import { type Foo }` 形式が必須。ESLint `consistent-type-imports` ルールで検出可能
+- 後手の合法手座標: `legalMovesForBlack(rotateState(s))` の結果を `(2-x, 3-y)` で元座標に変換
+
 **次のアクション:**
-- [ ] Phase 2: フロントエンド実装 (`dobutsu-analyzer/frontend/`)
-  - React + TypeScript + Vite でプロジェクト作成
-  - ゲームエンジン (合法手生成・千日手判定) — バックエンドの Rust ロジックを移植
-  - 盤面UI (3×4グリッド、ドラッグ＆ドロップ or タップ)
-  - API 連携 (`/api/moves` で合法手評価取得)
+- [ ] Phase 4: 独自探索エンジン (TypeScript ミニマックス + αβ)
+- [ ] Phase 5: 局面 URL シェア、棋譜読み込み再生
+- [ ] k8s マニフェスト作成 (homelab-fleet へ追加)
 
 **既存リソース:**
 - 田中先生の完全解析データ・プログラム: https://www.tanaka.ecc.u-tokyo.ac.jp/ktanaka/dobutsushogi/

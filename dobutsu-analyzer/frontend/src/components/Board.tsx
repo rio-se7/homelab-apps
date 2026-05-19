@@ -1,5 +1,4 @@
-import { GameState, Move, isBoardMove } from '../engine/types';
-import { LION, CHICKEN } from '../engine/types';
+import { type GameState, type Move, isBoardMove, LION, CHICKEN } from '../engine/types';
 
 const PIECE_LABEL: Record<number, string> = {
   1: 'ひ', 2: 'ぞ', 3: 'き', 4: 'に', 5: 'ら',
@@ -10,9 +9,11 @@ interface Props {
   selected: [number, number] | null;
   validMoves: Move[];
   onCellClick: (x: number, y: number) => void;
+  flipped?: boolean;
+  setupPiece?: number | null; // セットアップモード中の選択駒
 }
 
-export default function Board({ state, selected, validMoves, onCellClick }: Props) {
+export default function Board({ state, selected, validMoves, onCellClick, flipped = false, setupPiece }: Props) {
   const validDests = new Set(
     validMoves
       .filter(isBoardMove)
@@ -20,24 +21,24 @@ export default function Board({ state, selected, validMoves, onCellClick }: Prop
       .map(m => `${m.to[0]},${m.to[1]}`)
   );
 
-  // 表示: 上(y=0 後手陣) → 下(y=3 先手陣), 左(x=2 A列) → 右(x=0 C列)
-  const rows = [0, 1, 2, 3];
-  const cols = [2, 1, 0]; // A, B, C 表示順
+  // 反転時は行・列の表示順を逆にする
+  const rows = flipped ? [3, 2, 1, 0] : [0, 1, 2, 3];
+  const cols = flipped ? [0, 1, 2] : [2, 1, 0]; // A(x=2),B(x=1),C(x=0) or C,B,A
+
+  const colLabels = flipped ? ['C', 'B', 'A'] : ['A', 'B', 'C'];
 
   return (
     <div style={{ display: 'inline-block' }}>
-      {/* 列ラベル */}
       <div style={{ display: 'flex', marginLeft: 28 }}>
-        {cols.map(x => (
-          <div key={x} style={{ width: 64, textAlign: 'center', fontSize: 12, color: '#888' }}>
-            {'CBA'[x] === 'A' ? 'A' : 'CBA'[x] === 'B' ? 'B' : 'C'}
+        {colLabels.map((label, i) => (
+          <div key={i} style={{ width: 64, textAlign: 'center', fontSize: 12, color: '#888' }}>
+            {label}
           </div>
         ))}
       </div>
 
       {rows.map(y => (
         <div key={y} style={{ display: 'flex', alignItems: 'center' }}>
-          {/* 行ラベル */}
           <div style={{ width: 24, textAlign: 'center', fontSize: 12, color: '#888' }}>{y + 1}</div>
 
           {cols.map(x => {
@@ -49,8 +50,13 @@ export default function Board({ state, selected, validMoves, onCellClick }: Prop
             const isPromoted = Math.abs(piece) === CHICKEN;
             const isLion = Math.abs(piece) === LION;
 
+            // 反転時は駒の向きも逆転
+            const rotated = flipped ? isBlackPiece : isWhitePiece;
+
             const bg = isSelected
               ? '#ffd700'
+              : setupPiece !== undefined && setupPiece !== null
+              ? '#e8f4f8'
               : isValidDest
               ? '#90ee90'
               : (x + y) % 2 === 0 ? '#f0d9b5' : '#b58863';
@@ -60,39 +66,26 @@ export default function Board({ state, selected, validMoves, onCellClick }: Prop
                 key={x}
                 onClick={() => onCellClick(x, y)}
                 style={{
-                  width: 64,
-                  height: 64,
+                  width: 64, height: 64,
                   background: bg,
                   border: '1px solid #666',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  position: 'relative',
-                  userSelect: 'none',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', position: 'relative', userSelect: 'none',
                 }}
               >
                 {piece !== 0 && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      transform: isWhitePiece ? 'rotate(180deg)' : undefined,
-                      color: isLion ? '#c00' : isPromoted ? '#960' : '#222',
-                      fontWeight: isLion ? 'bold' : 'normal',
-                      fontSize: 22,
-                      lineHeight: 1,
-                    }}
-                  >
+                  <div style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    transform: rotated ? 'rotate(180deg)' : undefined,
+                    color: isLion ? '#c00' : isPromoted ? '#960' : isWhitePiece ? '#fff' : '#222',
+                    fontWeight: isLion ? 'bold' : 'normal',
+                    fontSize: 22, lineHeight: 1,
+                  }}>
                     {PIECE_LABEL[Math.abs(piece)]}
                     <div style={{ fontSize: 9, opacity: 0.6 }}>
                       {isBlackPiece ? '▲' : '▽'}
                     </div>
                   </div>
-                )}
-                {isValidDest && piece === 0 && (
-                  <div style={{ width: 16, height: 16, borderRadius: '50%', background: '#2a2' }} />
                 )}
               </div>
             );
