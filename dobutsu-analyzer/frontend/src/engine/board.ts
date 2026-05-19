@@ -1,6 +1,6 @@
 import {
   EMPTY, BABY, ELEPHANT, GIRAFFE, CHICKEN, LION,
-  GameState, Move, BoardMove, DropMove, MoveRecord,
+  type GameState, type Move, type BoardMove, type DropMove, type MoveRecord,
 } from './types';
 
 // 方向ベクトル (dx, dy) — Rust board.rs と同一
@@ -79,8 +79,19 @@ function legalMovesForBlack(state: GameState): Move[] {
 
 export function legalMoves(state: GameState): Move[] {
   if (state.turn === 'black') return legalMovesForBlack(state);
-  // 後手の手: rotate→先手手生成→結果をそのまま返す
-  return legalMovesForBlack(rotateState(state));
+  // 後手の手: rotate して先手の合法手を生成し、座標を元の盤面に戻す
+  const moves = legalMovesForBlack(rotateState(state));
+  return moves.map(m => {
+    if ('from' in m) {
+      const from: [number, number] = [2 - m.from[0], 3 - m.from[1]];
+      const to: [number, number] = [2 - m.to[0], 3 - m.to[1]];
+      const notation = `${'CBA'[from[0]]}${from[1] + 1}${'CBA'[to[0]]}${to[1] + 1}`;
+      return { from, to, notation } as BoardMove;
+    }
+    const to: [number, number] = [2 - m.to[0], 3 - m.to[1]];
+    const notation = `${m.notation[0]}*${'CBA'[to[0]]}${to[1] + 1}`;
+    return { ...m, to, notation } as DropMove;
+  });
 }
 
 // 着手を適用して新しい GameState を返す
