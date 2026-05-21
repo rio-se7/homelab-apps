@@ -34,15 +34,21 @@ export default function App() {
   const [cellSize, setCellSize] = useState(80);
   const boardAreaRef = useRef<HTMLDivElement>(null);
 
+  // 感想戦モード
+  const [reviewMode, setReviewMode] = useState(false);
+  const [reviewIndex, setReviewIndex] = useState(0);
+  const [reviewEvals, setReviewEvals] = useState<{ black: MoveEval[]; white: MoveEval[] }>({ black: [], white: [] });
+
   // 盤面コンテナのサイズに合わせてセルサイズを計算
   useEffect(() => {
     const el = boardAreaRef.current;
     if (!el) return;
     const calc = () => {
-      // 高さ: コンテナ高 - HandArea×2(約52px) - ボタン列(約44px) - ラベル(約20px) を 4行で割る
-      const fromH = Math.floor((el.clientHeight - 116) / 4);
-      // 幅: コンテナ幅 - ラベル(約30px) を 3列で割る
-      const fromW = Math.floor((el.clientWidth - 30) / 3);
+      // 高さ: コンテナ高 - タイトル(30px) - HandArea×2(68px) - コントローラー(44px) - ラベル行(20px)
+      const fromH = Math.floor((el.clientHeight - 162) / 4);
+      // 幅: ボード幅 = frame(8px) + labelCol(CELL*0.26) + 3*CELL ≈ CELL*3.26 + 8
+      //   → CELL = (containerWidth - 8) / 3.3 (少し余裕を持つ)
+      const fromW = Math.floor((el.clientWidth - 8) / 3.3);
       setCellSize(Math.max(60, Math.min(fromH, fromW, 260)));
     };
     const obs = new ResizeObserver(calc);
@@ -58,6 +64,21 @@ export default function App() {
       setEvalHistory([{ move: 0, score: toScore(r.result, r.dtm, 'black'), notation: '初期局面' }]);
     }).catch(() => {});
   }, []);
+
+  // 全局面配列 (感想戦ナビゲーション用)
+  const allPositions = [...stateHistory, gameState];
+
+  // 感想戦: reviewIndex 変化時に評価を取得
+  useEffect(() => {
+    if (!reviewMode) return;
+    const state = allPositions[reviewIndex];
+    if (!state) return;
+    const bp = encodeForApi({ ...state, turn: 'black' });
+    const wp = encodeForApi({ ...state, turn: 'white' });
+    Promise.all([fetchMoves(bp), fetchMoves(wp)])
+      .then(([b, w]) => setReviewEvals({ black: b.moves, white: w.moves }))
+      .catch(() => {});
+  }, [reviewMode, reviewIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 局面変化ごとに両者の合法手と評価を取得
   useEffect(() => {
@@ -185,8 +206,8 @@ export default function App() {
   }, []);
 
   // 合法手の評価行（棋譜と同じ形式）
-  function MoveEvalRow({ me, isBlack }: { me: MoveEval; isBlack: boolean }) {
-    const label = apiMoveToKifu(me.mv, gameState.board, isBlack);
+  function MoveEvalRow({ me, isBlack, board }: { me: MoveEval; isBlack: boolean; board?: number[][] }) {
+    const label = apiMoveToKifu(me.mv, board ?? gameState.board, isBlack);
     const bg = me.result === 'win' ? '#d4edda' : me.result === 'lose' ? '#f8d7da' : '#fff3cd';
     const wdl = me.result === 'win' ? '勝' : me.result === 'lose' ? '負' : '分';
     return (
@@ -203,7 +224,9 @@ export default function App() {
     );
   }
 
-  const statusText = winner
+  const statusText = reviewMode
+    ? `感想戦 ${reviewIndex === 0 ? '初期局面' : `${reviewIndex}手目`}`
+    : winner
     ? `${winner === 'black' ? '先手' : '後手'}の勝ち！`
     : setupMode ? '局面を設定中'
     : `${gameState.turn === 'black' ? '先手' : '後手'}の番`;
@@ -211,23 +234,28 @@ export default function App() {
   return (
     <div style={{ fontFamily: 'sans-serif', padding: 24, display: 'flex', gap: 32, background: '#faf6ee', height: '100vh', boxSizing: 'border-box', overflow: 'hidden' }}>
       {/* 盤面エリア — 1:2 比率 */}
-      <div ref={boardAreaRef} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', minWidth: 0 }}>
+      <div ref={boardAreaRef} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'flex-start', minWidth: 0 }}>
         <h2 style={{ margin: '0 0 8px', color: '#3a2800' }}>どうぶつしょうぎ解析</h2>
 
         <HandArea
-          hand={gameState.hand.white} player="white"
-          onDrop={!setupMode && gameState.turn === 'white' ? handleHandClick : undefined}
+          hand={(reviewMode ? allPositions[reviewIndex] : gameState)?.hand.white ?? gameState.hand.white}
+          player="white"
+          onDrop={!setupMode && !reviewMode && gameState.turn === 'white' ? handleHandClick : undefined}
           selectedDrop={gameState.turn === 'white' ? selectedDrop : null}
         />
         <Board
-          state={gameState} selected={selected} validMoves={setupMode ? [] : validMoves}
-          onCellClick={handleCellClick} flipped={flipped}
+          state={reviewMode ? (allPositions[reviewIndex] ?? gameState) : gameState}
+          selected={reviewMode ? null : selected}
+          validMoves={setupMode || reviewMode ? [] : validMoves}
+          onCellClick={reviewMode ? () => {} : handleCellClick}
+          flipped={flipped}
           setupPiece={setupMode ? setupPiece : undefined}
           cellSize={cellSize}
         />
         <HandArea
-          hand={gameState.hand.black} player="black"
-          onDrop={!setupMode && gameState.turn === 'black' ? handleHandClick : undefined}
+          hand={(reviewMode ? allPositions[reviewIndex] : gameState)?.hand.black ?? gameState.hand.black}
+          player="black"
+          onDrop={!setupMode && !reviewMode && gameState.turn === 'black' ? handleHandClick : undefined}
           selectedDrop={gameState.turn === 'black' ? selectedDrop : null}
         />
 
@@ -236,11 +264,17 @@ export default function App() {
           {/* 誰の番 */}
           <span style={{ fontSize: 13, color: '#3a2800', fontWeight: 'bold', minWidth: 60 }}>{statusText}</span>
 
-          {!setupMode && (
+          {!setupMode && !reviewMode && (
             <>
               <button onClick={undoMove} disabled={stateHistory.length === 0}
                 style={{ padding: '4px 10px', fontSize: 12, opacity: stateHistory.length === 0 ? 0.5 : 1 }}>
                 ← 1手戻る
+              </button>
+              <button
+                onClick={() => { setReviewMode(true); setReviewIndex(allPositions.length - 1); setReviewEvals({ black: [], white: [] }); }}
+                disabled={stateHistory.length === 0}
+                style={{ padding: '4px 10px', fontSize: 12, opacity: stateHistory.length === 0 ? 0.5 : 1 }}>
+                感想戦
               </button>
               <button onClick={() => { setSetupMode(true); setSelected(null); setSelectedDrop(null); }}
                 style={{ padding: '4px 10px', fontSize: 12 }}>
@@ -249,6 +283,25 @@ export default function App() {
               <button onClick={resetGame} style={{ padding: '4px 10px', fontSize: 12 }}>
                 リセット
               </button>
+            </>
+          )}
+
+          {/* 感想戦ナビゲーション */}
+          {reviewMode && (
+            <>
+              <button onClick={() => setReviewIndex(0)} disabled={reviewIndex === 0}
+                style={{ padding: '4px 8px', fontSize: 12, opacity: reviewIndex === 0 ? 0.4 : 1 }}>|◀</button>
+              <button onClick={() => setReviewIndex(i => Math.max(0, i - 1))} disabled={reviewIndex === 0}
+                style={{ padding: '4px 8px', fontSize: 12, opacity: reviewIndex === 0 ? 0.4 : 1 }}>◀</button>
+              <span style={{ fontSize: 12, color: '#555', minWidth: 64, textAlign: 'center' }}>
+                {reviewIndex === 0 ? '初期局面' : `${reviewIndex}手目`} / {allPositions.length - 1}手
+              </span>
+              <button onClick={() => setReviewIndex(i => Math.min(allPositions.length - 1, i + 1))} disabled={reviewIndex === allPositions.length - 1}
+                style={{ padding: '4px 8px', fontSize: 12, opacity: reviewIndex === allPositions.length - 1 ? 0.4 : 1 }}>▶</button>
+              <button onClick={() => setReviewIndex(allPositions.length - 1)} disabled={reviewIndex === allPositions.length - 1}
+                style={{ padding: '4px 8px', fontSize: 12, opacity: reviewIndex === allPositions.length - 1 ? 0.4 : 1 }}>▶|</button>
+              <button onClick={() => setReviewMode(false)}
+                style={{ padding: '4px 10px', fontSize: 12, marginLeft: 4 }}>終了</button>
             </>
           )}
 
@@ -269,25 +322,24 @@ export default function App() {
           </label>
         </div>
 
-        {setupMode && (
-          <div style={{ marginTop: 12 }}>
-            <SetupPanel
-              state={gameState} selectedPiece={setupPiece}
-              onSelectPiece={setSetupPiece}
-              onChangeTurn={turn => setGameState(s => ({ ...s, turn }))}
-              onChangeHand={handleChangeHand}
-              onDone={handleSetupDone}
-              onReset={resetGame}
-            />
-          </div>
-        )}
       </div>
 
-      {/* 評価パネル */}
-      {!setupMode && (
+      {/* 右カラム: 評価パネル or セットアップパネル */}
+      {setupMode ? (
+        <div style={{ flex: 2, minWidth: 0, overflowY: 'auto' }}>
+          <SetupPanel
+            state={gameState} selectedPiece={setupPiece}
+            onSelectPiece={setSetupPiece}
+            onChangeTurn={turn => setGameState(s => ({ ...s, turn }))}
+            onChangeHand={handleChangeHand}
+            onDone={handleSetupDone}
+            onReset={resetGame}
+          />
+        </div>
+      ) : (
         <div style={{ flex: 2, minWidth: 0 }}>
           <h3 style={{ margin: '0 0 12px', color: '#3a2800' }}>完全解析評価</h3>
-          <EvalChart history={evalHistory} />
+          <EvalChart history={evalHistory} highlightMove={reviewMode ? reviewIndex : undefined} />
 
           {evalError && <div style={{ fontSize: 12, color: '#c00', margin: '8px 0' }}>{evalError}</div>}
 
@@ -298,8 +350,11 @@ export default function App() {
               <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>
                 ▲先手の合法手
               </div>
-              {blackMoveEvals.map((me, i) => (
-                <MoveEvalRow key={i} me={me} isBlack={true} />
+              {(reviewMode ? reviewEvals.black : blackMoveEvals).map((me, i) => (
+                <MoveEvalRow
+                  key={i} me={me} isBlack={true}
+                  board={(reviewMode ? allPositions[reviewIndex] : gameState)?.board ?? gameState.board}
+                />
               ))}
             </div>
             {/* 後手 */}
@@ -307,8 +362,11 @@ export default function App() {
               <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>
                 △後手の合法手
               </div>
-              {whiteMoveEvals.map((me, i) => (
-                <MoveEvalRow key={i} me={me} isBlack={false} />
+              {(reviewMode ? reviewEvals.white : whiteMoveEvals).map((me, i) => (
+                <MoveEvalRow
+                  key={i} me={me} isBlack={false}
+                  board={(reviewMode ? allPositions[reviewIndex] : gameState)?.board ?? gameState.board}
+                />
               ))}
             </div>
           </div>
@@ -318,11 +376,24 @@ export default function App() {
             <div style={{ marginTop: 12 }}>
               <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>棋譜</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 8px', fontSize: 11, fontFamily: 'monospace', color: '#444' }}>
-                {gameState.history.map((rec, i) => (
-                  <span key={i} style={{ whiteSpace: 'nowrap', color: rec.turn === 'black' ? '#333' : '#666' }}>
-                    {i + 1}.{toKifuNotation(rec.notation, rec.turn)}
-                  </span>
-                ))}
+                {gameState.history.map((rec, i) => {
+                  const isReviewing = reviewMode && reviewIndex === i + 1;
+                  return (
+                    <span
+                      key={i}
+                      onClick={() => { setReviewMode(true); setReviewIndex(i + 1); }}
+                      style={{
+                        whiteSpace: 'nowrap',
+                        color: rec.turn === 'black' ? '#333' : '#666',
+                        background: isReviewing ? '#ffe060' : undefined,
+                        borderRadius: 3, padding: isReviewing ? '0 2px' : undefined,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {i + 1}.{toKifuNotation(rec.notation, rec.turn)}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}

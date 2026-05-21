@@ -11,6 +11,7 @@ export interface EvalPoint {
 
 interface Props {
   history: EvalPoint[];
+  highlightMove?: number; // 感想戦モードで現在参照中の手
 }
 
 function CustomTooltip({ active, payload }: any) {
@@ -27,7 +28,7 @@ function CustomTooltip({ active, payload }: any) {
   );
 }
 
-export default function EvalChart({ history }: Props) {
+export default function EvalChart({ history, highlightMove }: Props) {
   if (history.length === 0) return null;
 
   const maxAbs = Math.max(...history.map(p => Math.abs(p.score)), 1);
@@ -51,7 +52,19 @@ export default function EvalChart({ history }: Props) {
             dataKey="score"
             stroke="#4a90e2"
             strokeWidth={2}
-            dot={{ r: 3 }}
+            dot={(props: any) => {
+              const isHighlight = highlightMove !== undefined && props.payload?.move === highlightMove;
+              return (
+                <circle
+                  key={props.index}
+                  cx={props.cx} cy={props.cy}
+                  r={isHighlight ? 6 : 3}
+                  fill={isHighlight ? '#e05020' : '#4a90e2'}
+                  stroke={isHighlight ? '#fff' : 'none'}
+                  strokeWidth={isHighlight ? 2 : 0}
+                />
+              );
+            }}
             activeDot={{ r: 5 }}
           />
         </LineChart>
