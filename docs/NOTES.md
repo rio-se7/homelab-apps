@@ -64,6 +64,43 @@ clubdam.com から採点履歴を自動取得し、可視化と AI フィード�
 
 ---
 
+### rsscast — AI ポッドキャスト生成アプリ (huxe 代替)
+
+RSS フィードを収集 → LLM で要約 → TTS で音声生成 → ブラウザで再生するセルフホスト型 AI ラジオアプリ。
+Huxe (2026-05-28 サービス終了) の代替として、カスタム RSS/ニュース + 音声生成機能をカバー。
+
+**Stack**: Python (FastAPI + feedparser + anthropic SDK) + React + TypeScript + Vite
+
+**Architecture:**
+- バックエンド: RSS フェッチ → LLM 要約 (Claude API または llama-server) → TTS (edge-tts / OpenAI TTS)
+- フロントエンド: フィード管理 UI + エピソード一覧 + 音声プレイヤー
+- 永続化: JSON ファイル (feeds.json, episodes/)
+
+**LLM/TTS プロバイダー**: 環境変数で切り替え可能
+- `SUMMARIZER=claude` (デフォルト) / `openai_compat` (llama-server 向け)
+- `TTS_PROVIDER=edge_tts` (デフォルト) / `openai` / `kokoro`
+
+**Phase:**
+- [ ] Phase 1: バックエンド API (feeds CRUD + エピソード生成 + 音声ストリーム)
+- [ ] Phase 2: フロントエンド (フィード管理 + プレイヤー)
+
+**API:**
+- `GET/POST/DELETE /api/feeds` — RSS フィード管理
+- `POST /api/episodes/generate` — フェッチ→要約→TTS 実行
+- `GET /api/episodes` / `GET /api/episodes/:id/audio` — エピソード取得
+
+**起動方法:**
+```bash
+cd rsscast/backend
+pip install -r requirements.txt
+uvicorn main:app --port 8090
+
+cd rsscast/frontend
+npm run dev  # → http://localhost:5174
+```
+
+---
+
 ### dobutsu-analyzer — どうぶつしょうぎ解析Webアプリ
 
 対局をプレイしながら各手の評価値（勝ち/負け/引き分け・残り手数）をリアルタイムで折れ線グラフ表示する解析アプリ。

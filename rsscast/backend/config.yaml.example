@@ -1,0 +1,13 @@
+# rsscast backend configuration (set via environment variables)
+#
+# SUMMARIZER: "claude" (default) or "openai_compat"
+# OPENAI_COMPAT_BASE: http://localhost:8080/v1  (for llama-server)
+# OPENAI_COMPAT_MODEL: qwen3
+# CLAUDE_MODEL: claude-haiku-4-5-20251001
+#
+# TTS_PROVIDER: "edge_tts" (default, free) or "openai"
+# EDGE_TTS_VOICE: ja-JP-NanamiNeural  (see: edge-tts --list-voices)
+# OPENAI_TTS_VOICE: shimmer
+#
+# ANTHROPIC_API_KEY: sk-ant-...  (required when SUMMARIZER=claude)
+# OPENAI_API_KEY: sk-...          (required when TTS_PROVIDER=openai)
