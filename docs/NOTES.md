@@ -84,6 +84,47 @@ clubdam.com から採点履歴を自動取得し、可視化と AI フィード�
 
 ---
 
+### briefcast — Web/YouTube/HN/Reddit → AI ポッドキャスト生成アプリ
+
+RSS 以外の Web ソース（任意 URL・YouTube チャンネル・HackerNews・Reddit・GitHub Trending）からコンテンツを収集し、LLM 要約 → TTS 音声生成するセルフホスト型 AI ラジオアプリ。
+rsscast (RSS 専用) と役割を分離。
+
+**Stack**: Python (FastAPI + httpx + trafilatura + youtube-transcript-api + bs4) + React + TypeScript + Vite
+
+**Architecture:**
+- バックエンド: ソースタイプ別アダプター (`sources/`) → LLM 要約 (Claude API / llama-server) → TTS (edge-tts / OpenAI TTS)
+- フロントエンド: ソース管理 UI + エピソード一覧 + 音声プレイヤー
+- 永続化: JSON ファイル (sources.json, episodes/)
+
+**ソースタイプ:**
+| type | 説明 | 実装 |
+|------|------|------|
+| `url` | 任意 URL の記事本文抽出 | trafilatura |
+| `youtube` | チャンネル最新動画の字幕 | youtube-transcript-api + RSS |
+| `hackernews` | top/new/best ストーリー | Firebase API |
+| `reddit` | Subreddit hot/new/top | Reddit JSON API (認証不要) |
+| `github_trending` | Trending リポジトリ一覧 | GitHub trending scrape + bs4 |
+
+**LLM/TTS プロバイダー**: 環境変数で切り替え
+- `SUMMARIZER=claude` (デフォルト) / `openai_compat`
+- `TTS_PROVIDER=edge_tts` (デフォルト) / `openai`
+
+**Phase:**
+- [x] Phase 1: バックエンド API (sources CRUD + エピソード生成 + 音声ストリーム)
+- [x] Phase 2: フロントエンド (ソース管理 + タイプ別フォーム + プレイヤー)
+
+**起動方法:**
+```bash
+cd briefcast/backend
+pip install -r requirements.txt
+ANTHROPIC_API_KEY=xxx uvicorn main:app --port 8091
+
+cd briefcast/frontend
+npm install && npm run dev  # → http://localhost:5175
+```
+
+---
+
 ### dobutsu-analyzer — どうぶつしょうぎ解析Webアプリ
 
 対局をプレイしながら各手の評価値（勝ち/負け/引き分け・残り手数）をリアルタイムで折れ線グラフ表示する解析アプリ。
