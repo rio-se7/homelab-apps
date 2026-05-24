@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+httpx
+aiofiles
+anthropic
+openai
+edge-tts
+trafilatura
+youtube-transcript-api
+beautifulsoup4
