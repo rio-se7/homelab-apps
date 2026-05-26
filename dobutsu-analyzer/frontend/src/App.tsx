@@ -213,7 +213,7 @@ export default function App() {
     return (
       <div style={{
         padding: '3px 6px', marginBottom: 2, background: bg,
-        borderRadius: 3, fontSize: 12,
+        borderRadius: 3, fontSize: 14,
         display: 'flex', justifyContent: 'space-between', gap: 4,
       }}>
         <span style={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{label}</span>
@@ -350,24 +350,28 @@ export default function App() {
               <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>
                 ▲先手の合法手
               </div>
-              {(reviewMode ? reviewEvals.black : blackMoveEvals).map((me, i) => (
-                <MoveEvalRow
-                  key={i} me={me} isBlack={true}
-                  board={(reviewMode ? allPositions[reviewIndex] : gameState)?.board ?? gameState.board}
-                />
-              ))}
+              <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                {(reviewMode ? reviewEvals.black : blackMoveEvals).map((me, i) => (
+                  <MoveEvalRow
+                    key={i} me={me} isBlack={true}
+                    board={(reviewMode ? allPositions[reviewIndex] : gameState)?.board ?? gameState.board}
+                  />
+                ))}
+              </div>
             </div>
             {/* 後手 */}
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>
                 △後手の合法手
               </div>
-              {(reviewMode ? reviewEvals.white : whiteMoveEvals).map((me, i) => (
-                <MoveEvalRow
-                  key={i} me={me} isBlack={false}
-                  board={(reviewMode ? allPositions[reviewIndex] : gameState)?.board ?? gameState.board}
-                />
-              ))}
+              <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                {(reviewMode ? reviewEvals.white : whiteMoveEvals).map((me, i) => (
+                  <MoveEvalRow
+                    key={i} me={me} isBlack={false}
+                    board={(reviewMode ? allPositions[reviewIndex] : gameState)?.board ?? gameState.board}
+                  />
+                ))}
+              </div>
             </div>
           </div>
 
@@ -375,7 +379,7 @@ export default function App() {
           {gameState.history.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>棋譜</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 8px', fontSize: 11, fontFamily: 'monospace', color: '#444' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 8px', fontSize: 13, fontFamily: 'monospace', color: '#444', maxHeight: 160, overflowY: 'auto' }}>
                 {gameState.history.map((rec, i) => {
                   const isReviewing = reviewMode && reviewIndex === i + 1;
                   return (
