@@ -39,6 +39,12 @@ export default function App() {
   const [reviewIndex, setReviewIndex] = useState(0);
   const [reviewEvals, setReviewEvals] = useState<{ black: MoveEval[]; white: MoveEval[] }>({ black: [], white: [] });
 
+  // シミュレーション（感想戦中に合法手を選択 → 最善手で終局まで展開）
+  const [simLine, setSimLine] = useState<GameState[]>([]);
+  const [simStep, setSimStep] = useState(0);
+  const [isLoadingSim, setIsLoadingSim] = useState(false);
+  const inSim = simLine.length > 0;
+
   // 盤面コンテナのサイズに合わせてセルサイズを計算
   useEffect(() => {
     const el = boardAreaRef.current;
@@ -67,6 +73,13 @@ export default function App() {
 
   // 全局面配列 (感想戦ナビゲーション用)
   const allPositions = [...stateHistory, gameState];
+
+  // 表示する局面: シミュレーション中 > 感想戦 > 通常
+  const currentDisplayState = inSim
+    ? simLine[simStep]
+    : reviewMode
+    ? (allPositions[reviewIndex] ?? gameState)
+    : gameState;
 
   // 感想戦: reviewIndex 変化時に評価を取得
   useEffect(() => {
@@ -197,6 +210,48 @@ export default function App() {
     }).catch(() => setEvalHistory([]));
   }, [gameState]);
 
+  // シミュレーション: 感想戦中に選択した手を起点に双方最善手で終局まで計算
+  const startSimulation = useCallback(async (mv: string, asBlack: boolean) => {
+    const reviewState = allPositions[reviewIndex];
+    if (!reviewState) return;
+
+    const startState: GameState = { ...reviewState, turn: asBlack ? 'black' : 'white' };
+    const moves = legalMoves(startState);
+    const firstMove = moves.find(m => m.notation === mv);
+    if (!firstMove) return;
+
+    setIsLoadingSim(true);
+
+    const line: GameState[] = [startState];
+    let state = applyMove(startState, firstMove);
+    line.push(state);
+    let w = checkWinner(state, firstMove);
+
+    for (let i = 0; i < 100 && !w; i++) {
+      const pos = encodeForApi(state);
+      let resp;
+      try { resp = await fetchMoves(pos); } catch { break; }
+      if (!resp.moves.length) break;
+
+      const bestMv = resp.moves[0].mv;
+      const nextMove = legalMoves(state).find(m => m.notation === bestMv);
+      if (!nextMove) break;
+
+      state = applyMove(state, nextMove);
+      line.push(state);
+      w = checkWinner(state, nextMove);
+    }
+
+    setSimLine(line);
+    setSimStep(1);
+    setIsLoadingSim(false);
+  }, [allPositions, reviewIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const exitSim = useCallback(() => {
+    setSimLine([]);
+    setSimStep(0);
+  }, []);
+
   const handleChangeHand = useCallback((player: 'black' | 'white', pieceType: number, delta: number) => {
     setGameState(s => {
       const hand = { black: [...s.hand.black], white: [...s.hand.white] };
@@ -206,16 +261,25 @@ export default function App() {
   }, []);
 
   // 合法手の評価行（棋譜と同じ形式）
-  function MoveEvalRow({ me, isBlack, board }: { me: MoveEval; isBlack: boolean; board?: number[][] }) {
+  function MoveEvalRow({ me, isBlack, board, onClick }: { me: MoveEval; isBlack: boolean; board?: number[][]; onClick?: () => void }) {
     const label = apiMoveToKifu(me.mv, board ?? gameState.board, isBlack);
     const bg = me.result === 'win' ? '#d4edda' : me.result === 'lose' ? '#f8d7da' : '#fff3cd';
     const wdl = me.result === 'win' ? '勝' : me.result === 'lose' ? '負' : '分';
     return (
-      <div style={{
-        padding: '3px 6px', marginBottom: 2, background: bg,
-        borderRadius: 3, fontSize: 14,
-        display: 'flex', justifyContent: 'space-between', gap: 4,
-      }}>
+      <div
+        onClick={onClick}
+        title={onClick ? 'クリックでシミュレーション' : undefined}
+        style={{
+          padding: '3px 6px', marginBottom: 2, background: bg,
+          borderRadius: 3, fontSize: 14,
+          display: 'flex', justifyContent: 'space-between', gap: 4,
+          cursor: onClick ? 'pointer' : 'default',
+          outline: onClick ? undefined : undefined,
+          transition: 'filter 0.1s',
+        }}
+        onMouseEnter={e => { if (onClick) (e.currentTarget as HTMLElement).style.filter = 'brightness(0.93)'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.filter = ''; }}
+      >
         <span style={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{label}</span>
         <span style={{ color: '#555', whiteSpace: 'nowrap' }}>
           {wdl}{me.dtm > 0 ? ` ${me.dtm + 1}手` : ''}
@@ -224,7 +288,19 @@ export default function App() {
     );
   }
 
-  const statusText = reviewMode
+  const simWinner = inSim ? checkWinner(simLine[simLine.length - 1], null) : null;
+  const simCurrentNotation = inSim && simStep > 0
+    ? (() => {
+        const rec = simLine[simStep].history[simLine[simStep].history.length - 1];
+        return rec ? toKifuNotation(rec.notation, simLine[simStep - 1].turn) : '';
+      })()
+    : '';
+
+  const statusText = inSim
+    ? (simStep === simLine.length - 1 && simWinner
+        ? `${simWinner === 'black' ? '先手' : '後手'}の勝ち（シミュレーション）`
+        : `シミュレーション ${simStep}/${simLine.length - 1}手目`)
+    : reviewMode
     ? `感想戦 ${reviewIndex === 0 ? '初期局面' : `${reviewIndex}手目`}`
     : winner
     ? `${winner === 'black' ? '先手' : '後手'}の勝ち！`
@@ -238,24 +314,24 @@ export default function App() {
         <h2 style={{ margin: '0 0 8px', color: '#3a2800' }}>どうぶつしょうぎ解析</h2>
 
         <HandArea
-          hand={(reviewMode ? allPositions[reviewIndex] : gameState)?.hand.white ?? gameState.hand.white}
+          hand={currentDisplayState.hand.white}
           player="white"
-          onDrop={!setupMode && !reviewMode && gameState.turn === 'white' ? handleHandClick : undefined}
+          onDrop={!setupMode && !reviewMode && !inSim && gameState.turn === 'white' ? handleHandClick : undefined}
           selectedDrop={gameState.turn === 'white' ? selectedDrop : null}
         />
         <Board
-          state={reviewMode ? (allPositions[reviewIndex] ?? gameState) : gameState}
-          selected={reviewMode ? null : selected}
-          validMoves={setupMode || reviewMode ? [] : validMoves}
-          onCellClick={reviewMode ? () => {} : handleCellClick}
+          state={currentDisplayState}
+          selected={reviewMode || inSim ? null : selected}
+          validMoves={setupMode || reviewMode || inSim ? [] : validMoves}
+          onCellClick={reviewMode || inSim ? () => {} : handleCellClick}
           flipped={flipped}
           setupPiece={setupMode ? setupPiece : undefined}
           cellSize={cellSize}
         />
         <HandArea
-          hand={(reviewMode ? allPositions[reviewIndex] : gameState)?.hand.black ?? gameState.hand.black}
+          hand={currentDisplayState.hand.black}
           player="black"
-          onDrop={!setupMode && !reviewMode && gameState.turn === 'black' ? handleHandClick : undefined}
+          onDrop={!setupMode && !reviewMode && !inSim && gameState.turn === 'black' ? handleHandClick : undefined}
           selectedDrop={gameState.turn === 'black' ? selectedDrop : null}
         />
 
@@ -286,8 +362,23 @@ export default function App() {
             </>
           )}
 
+          {/* シミュレーションナビゲーション */}
+          {inSim && (
+            <>
+              <button onClick={() => setSimStep(s => Math.max(0, s - 1))} disabled={simStep === 0}
+                style={{ padding: '4px 8px', fontSize: 12, opacity: simStep === 0 ? 0.4 : 1 }}>◀</button>
+              <span style={{ fontSize: 12, color: '#555', minWidth: 80, textAlign: 'center' }}>
+                {simStep === 0 ? '開始局面' : `${simStep}/${simLine.length - 1}手 ${simCurrentNotation}`}
+              </span>
+              <button onClick={() => setSimStep(s => Math.min(simLine.length - 1, s + 1))} disabled={simStep === simLine.length - 1}
+                style={{ padding: '4px 8px', fontSize: 12, opacity: simStep === simLine.length - 1 ? 0.4 : 1 }}>▶</button>
+              <button onClick={exitSim}
+                style={{ padding: '4px 10px', fontSize: 12, marginLeft: 4 }}>シミュレーション終了</button>
+            </>
+          )}
+
           {/* 感想戦ナビゲーション */}
-          {reviewMode && (
+          {reviewMode && !inSim && (
             <>
               <button onClick={() => setReviewIndex(0)} disabled={reviewIndex === 0}
                 style={{ padding: '4px 8px', fontSize: 12, opacity: reviewIndex === 0 ? 0.4 : 1 }}>|◀</button>
@@ -344,17 +435,24 @@ export default function App() {
           {evalError && <div style={{ fontSize: 12, color: '#c00', margin: '8px 0' }}>{evalError}</div>}
 
           {/* 先手・後手の合法手（横並び） */}
+          {isLoadingSim && (
+            <div style={{ fontSize: 13, color: '#7a5a1a', marginTop: 12, padding: '6px 8px', background: '#fff8e8', borderRadius: 4 }}>
+              シミュレーション計算中…
+            </div>
+          )}
+          {!isLoadingSim && (
           <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
             {/* 先手 */}
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>
-                ▲先手の合法手
+                ▲先手の合法手{reviewMode && !inSim && <span style={{ fontWeight: 'normal', color: '#aaa' }}> (クリックで展開)</span>}
               </div>
               <div style={{ maxHeight: 280, overflowY: 'auto' }}>
-                {(reviewMode ? reviewEvals.black : blackMoveEvals).map((me, i) => (
+                {(reviewMode && !inSim ? reviewEvals.black : blackMoveEvals).map((me, i) => (
                   <MoveEvalRow
                     key={i} me={me} isBlack={true}
-                    board={(reviewMode ? allPositions[reviewIndex] : gameState)?.board ?? gameState.board}
+                    board={currentDisplayState.board}
+                    onClick={reviewMode && !inSim ? () => startSimulation(me.mv, true) : undefined}
                   />
                 ))}
               </div>
@@ -362,18 +460,20 @@ export default function App() {
             {/* 後手 */}
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>
-                △後手の合法手
+                △後手の合法手{reviewMode && !inSim && <span style={{ fontWeight: 'normal', color: '#aaa' }}> (クリックで展開)</span>}
               </div>
               <div style={{ maxHeight: 280, overflowY: 'auto' }}>
-                {(reviewMode ? reviewEvals.white : whiteMoveEvals).map((me, i) => (
+                {(reviewMode && !inSim ? reviewEvals.white : whiteMoveEvals).map((me, i) => (
                   <MoveEvalRow
                     key={i} me={me} isBlack={false}
-                    board={(reviewMode ? allPositions[reviewIndex] : gameState)?.board ?? gameState.board}
+                    board={currentDisplayState.board}
+                    onClick={reviewMode && !inSim ? () => startSimulation(me.mv, false) : undefined}
                   />
                 ))}
               </div>
             </div>
           </div>
+          )}
 
           {/* 棋譜: コンパクトなフロー表示 */}
           {gameState.history.length > 0 && (
