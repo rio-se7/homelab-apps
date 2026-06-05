@@ -215,9 +215,19 @@ export default function App() {
     const reviewState = allPositions[reviewIndex];
     if (!reviewState) return;
 
+    // encodeForApi may normalize by flipping columns (A↔C). When that happens the API
+    // returns notations in the flipped frame, but legalMoves uses the original frame.
+    // Fall back to the column-flipped variant to handle both cases.
+    const colFlip = (n: string): string => {
+      const f = (c: string) => c === 'A' ? 'C' : c === 'C' ? 'A' : c;
+      return n.includes('*')
+        ? n[0] + n[1] + f(n[2]) + n.slice(3)          // drop: "P*B3"
+        : f(n[0]) + n[1] + f(n[2]) + n.slice(3);      // board: "B3B2P"
+    };
+
     const startState: GameState = { ...reviewState, turn: asBlack ? 'black' : 'white' };
     const moves = legalMoves(startState);
-    const firstMove = moves.find(m => m.notation === mv);
+    const firstMove = moves.find(m => m.notation === mv) ?? moves.find(m => m.notation === colFlip(mv));
     if (!firstMove) return;
 
     setIsLoadingSim(true);
@@ -234,7 +244,7 @@ export default function App() {
       if (!resp.moves.length) break;
 
       const bestMv = resp.moves[0].mv;
-      const nextMove = legalMoves(state).find(m => m.notation === bestMv);
+      const nextMove = legalMoves(state).find(m => m.notation === bestMv) ?? legalMoves(state).find(m => m.notation === colFlip(bestMv));
       if (!nextMove) break;
 
       state = applyMove(state, nextMove);

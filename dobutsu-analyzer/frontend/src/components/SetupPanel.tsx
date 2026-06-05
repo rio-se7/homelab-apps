@@ -134,7 +134,7 @@ const btnStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 
-function PieceButton({ label, value, selected, color, rotated = false, onClick }: {
+function PieceButton({ label, value: _value, selected, color, rotated = false, onClick }: {
   label: string; value: number; selected: boolean;
   color: string; rotated?: boolean; onClick: () => void;
 }) {

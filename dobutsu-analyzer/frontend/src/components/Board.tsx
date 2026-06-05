@@ -1,4 +1,4 @@
-import { type GameState, type Move, isBoardMove, LION, CHICKEN, BABY } from '../engine/types';
+import { type GameState, type Move, isBoardMove, LION, CHICKEN } from '../engine/types';
 
 const PIECE_LABEL: Record<number, string> = {
   1: '🐤', 2: '🐘', 3: '🦒', 4: '🐓', 5: '🦁',
@@ -25,8 +25,6 @@ const C = {
   normal:     '#1a1a1a',
 };
 
-// 五角形クリップパス（将棋駒風、先端が上）
-const PENTAGON = 'polygon(50% 0%, 100% 30%, 100% 100%, 0% 100%, 0% 30%)';
 
 interface Props {
   state: GameState;
@@ -95,7 +93,6 @@ export default function Board({
               const isValid  = validDests.has(`${x},${y}`);
               const isProm   = Math.abs(piece) === CHICKEN;
               const isLion   = Math.abs(piece) === LION;
-              const isBaby   = Math.abs(piece) === BABY;
               const rotated  = flipped ? isBlack : isWhite;
 
               const bg = isSel
