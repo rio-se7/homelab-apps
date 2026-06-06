@@ -340,6 +340,7 @@ export default function App() {
           flipped={flipped}
           setupPiece={setupMode ? setupPiece : undefined}
           cellSize={cellSize}
+          selectedDrop={!setupMode && !reviewMode && !inSim ? selectedDrop : null}
         />
         <HandArea
           hand={currentDisplayState.hand.black}

@@ -1,4 +1,4 @@
-import { type GameState, type Move, isBoardMove, LION, CHICKEN } from '../engine/types';
+import { type GameState, type Move, type DropMove, isBoardMove, LION, CHICKEN } from '../engine/types';
 
 const PIECE_LABEL: Record<number, string> = {
   1: '🐤', 2: '🐘', 3: '🦒', 4: '🐓', 5: '🦁',
@@ -34,16 +34,23 @@ interface Props {
   flipped?: boolean;
   setupPiece?: number | null;
   cellSize?: number;
+  selectedDrop?: number | null;
 }
 
 export default function Board({
   state, selected, validMoves, onCellClick,
-  flipped = false, setupPiece, cellSize = 80,
+  flipped = false, setupPiece, cellSize = 80, selectedDrop,
 }: Props) {
   const validDests = new Set(
     validMoves
-      .filter(isBoardMove)
-      .filter(m => !selected || (m.from[0] === selected[0] && m.from[1] === selected[1]))
+      .filter(m => {
+        if (selectedDrop != null) {
+          // ドロップモード: 選択した持ち駒の着地点（空きマス）のみ
+          return !isBoardMove(m) && (m as DropMove).piece === selectedDrop;
+        }
+        // 通常モード: 選択駒の着地点（未選択時は全駒の着地点）
+        return isBoardMove(m) && (!selected || (m.from[0] === selected[0] && m.from[1] === selected[1]));
+      })
       .map(m => `${m.to[0]},${m.to[1]}`)
   );
 
