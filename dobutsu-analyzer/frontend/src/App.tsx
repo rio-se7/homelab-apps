@@ -85,14 +85,31 @@ export default function App() {
     return () => obs.disconnect();
   }, []);
 
-  // 初期評価 (URLからロードした局面にも対応)
+  // 初期評価 (URLからロードした棋譜は全局面を並行フェッチしてグラフを再構築)
   useEffect(() => {
     const { stateHistory: initSh, gameState: initGs, isFromUrl } = parseStartFromUrl();
-    const startState = initSh.length > 0 ? initSh[0] : initGs;
-    fetchEval(encodeForApi(startState)).then(r => {
-      const notation = isFromUrl ? '共有局面' : '初期局面';
-      setEvalHistory([{ move: 0, score: toScore(r.result, r.dtm, startState.turn), notation }]);
-    }).catch(() => {});
+    const allPos = [...initSh, initGs];
+
+    if (isFromUrl && allPos.length > 1) {
+      Promise.all(allPos.map(s => fetchEval(encodeForApi(s)).catch(() => null)))
+        .then(results => {
+          const points: EvalPoint[] = [];
+          results.forEach((r, i) => {
+            if (!r) return;
+            const notation = i === 0
+              ? '共有局面'
+              : (() => { const rec = initGs.history[i - 1]; return rec ? toKifuNotation(rec.notation, rec.turn) : `${i}手目`; })();
+            points.push({ move: i, score: toScore(r.result, r.dtm, allPos[i].turn), notation });
+          });
+          setEvalHistory(points);
+        });
+    } else {
+      const startState = allPos[0];
+      fetchEval(encodeForApi(startState)).then(r => {
+        const notation = isFromUrl ? '共有局面' : '初期局面';
+        setEvalHistory([{ move: 0, score: toScore(r.result, r.dtm, startState.turn), notation }]);
+      }).catch(() => {});
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 全局面配列 (感想戦ナビゲーション用)
