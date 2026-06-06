@@ -67,7 +67,7 @@ export function apiMoveToKifu(apiMv: string, state: GameState): string {
   const sx = COL_X[mv[0]], sy = parseInt(mv[1]) - 1;
   const piece = Math.abs(state.board[sx]?.[sy] ?? 0);
   const pc = PIECE_JP[pieceChar(piece)] ?? '';
-  return `${mark}${mv.slice(2, 4)}${pc}`;
+  return `${mark}${mv.slice(0, 2)}${mv.slice(2, 4)}${pc}`;
 }
 
 // API レスポンスの手表記 ("B4B3" or "P*B3") を将棋風に変換
