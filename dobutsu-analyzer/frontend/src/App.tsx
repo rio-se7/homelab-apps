@@ -167,11 +167,19 @@ export default function App() {
     setIsAiThinking(true);
     const timer = setTimeout(() => {
       fetchMoves(encodeForApi(gameState)).then(r => {
-        if (cancelled || !r.moves.length) { if (!cancelled) setIsAiThinking(false); return; }
+        if (cancelled) return;
+        // 即座にライオンを取られる手（自ら王手になる手）を除外
+        const safeMoves = r.moves.filter(m => !(m.result === 'lose' && m.dtm === 0));
+        if (safeMoves.length === 0) {
+          // 詰み: 逃げ手がない → 相手の勝ち
+          setWinner(aiPlayer === 'black' ? 'white' : 'black');
+          if (!cancelled) setIsAiThinking(false);
+          return;
+        }
         const prob = AI_LEVELS.find(l => l.value === aiLevel)?.prob ?? 0.7;
         const picked = Math.random() < prob
-          ? r.moves[0]
-          : r.moves[Math.floor(Math.random() * r.moves.length)];
+          ? safeMoves[0]
+          : safeMoves[Math.floor(Math.random() * safeMoves.length)];
         const move = moveFromApiNotation(picked.mv, gameState);
         if (move) executeMove(move);
         if (!cancelled) setIsAiThinking(false);
