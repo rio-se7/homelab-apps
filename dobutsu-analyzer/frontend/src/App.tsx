@@ -30,6 +30,14 @@ function parseStartFromUrl() {
 }
 import { fetchEval, fetchMoves, type MoveEval } from './api/client';
 
+type AiLevel = 'strongest' | 'strong' | 'normal' | 'weak';
+const AI_LEVELS: { value: AiLevel; label: string; prob: number }[] = [
+  { value: 'strongest', label: '最強', prob: 1.0 },
+  { value: 'strong',    label: '強い', prob: 0.9 },
+  { value: 'normal',    label: '普通', prob: 0.7 },
+  { value: 'weak',      label: '弱い', prob: 0.5 },
+];
+
 function toScore(result: string, dtm: number, turn: 'black' | 'white'): number {
   const d = dtm + 1;
   if (result === 'draw') return 0;
@@ -53,6 +61,11 @@ export default function App() {
   const [setupPiece, setSetupPiece] = useState<number | null>(null);
   const [cellSize, setCellSize] = useState(80);
   const [copied, setCopied] = useState(false);
+  const [aiMode, setAiMode] = useState(false);
+  const [aiPlayer, setAiPlayer] = useState<'black' | 'white'>('white');
+  const [aiLevel, setAiLevel] = useState<AiLevel>('normal');
+  const [showAiSetup, setShowAiSetup] = useState(false);
+  const [isAiThinking, setIsAiThinking] = useState(false);
   const boardAreaRef = useRef<HTMLDivElement>(null);
 
   // 感想戦モード
@@ -146,6 +159,26 @@ export default function App() {
       .then(([b, w]) => setSimEvals({ black: b.moves, white: w.moves }))
       .catch(() => {});
   }, [inSim, simStep]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // AI対局: 自分の番になったら自動着手
+  useEffect(() => {
+    if (!aiMode || gameState.turn !== aiPlayer || winner || setupMode) return;
+    let cancelled = false;
+    setIsAiThinking(true);
+    const timer = setTimeout(() => {
+      fetchMoves(encodeForApi(gameState)).then(r => {
+        if (cancelled || !r.moves.length) { if (!cancelled) setIsAiThinking(false); return; }
+        const prob = AI_LEVELS.find(l => l.value === aiLevel)?.prob ?? 0.7;
+        const picked = Math.random() < prob
+          ? r.moves[0]
+          : r.moves[Math.floor(Math.random() * r.moves.length)];
+        const move = moveFromApiNotation(picked.mv, gameState);
+        if (move) executeMove(move);
+        if (!cancelled) setIsAiThinking(false);
+      }).catch(() => { if (!cancelled) setIsAiThinking(false); });
+    }, 500);
+    return () => { cancelled = true; clearTimeout(timer); setIsAiThinking(false); };
+  }, [aiMode, gameState, aiPlayer, winner, setupMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 局面変化ごとに両者の合法手と評価を取得
   useEffect(() => {
@@ -358,6 +391,7 @@ export default function App() {
     : winner
     ? `${winner === 'black' ? '先手' : '後手'}の勝ち！`
     : setupMode ? '局面を設定中'
+    : isAiThinking ? 'AI思考中...'
     : `${gameState.turn === 'black' ? '先手' : '後手'}の番`;
 
   return (
@@ -406,11 +440,25 @@ export default function App() {
                 style={{ padding: '4px 10px', fontSize: 12, opacity: stateHistory.length === 0 ? 0.5 : 1 }}>
                 感想戦
               </button>
-              <button onClick={() => { setSetupMode(true); setSelected(null); setSelectedDrop(null); }}
+              {!aiMode && (
+                <>
+                  <button onClick={() => { setSetupMode(true); setSelected(null); setSelectedDrop(null); }}
+                    style={{ padding: '4px 10px', fontSize: 12 }}>
+                    局面設定
+                  </button>
+                  <button onClick={() => setShowAiSetup(s => !s)}
+                    style={{ padding: '4px 10px', fontSize: 12, background: showAiSetup ? '#c8a84a' : undefined }}>
+                    AI対局
+                  </button>
+                </>
+              )}
+              {aiMode && (
+                <span style={{ fontSize: 12, color: '#7a5a1a' }}>
+                  AI {aiPlayer === 'black' ? '▲先手' : '△後手'} / {AI_LEVELS.find(l => l.value === aiLevel)?.label}
+                </span>
+              )}
+              <button onClick={() => { resetGame(); setAiMode(false); setShowAiSetup(false); setIsAiThinking(false); }}
                 style={{ padding: '4px 10px', fontSize: 12 }}>
-                局面設定
-              </button>
-              <button onClick={resetGame} style={{ padding: '4px 10px', fontSize: 12 }}>
                 リセット
               </button>
             </>
@@ -486,8 +534,52 @@ export default function App() {
 
       </div>
 
-      {/* 右カラム: 評価パネル or セットアップパネル */}
-      {setupMode ? (
+      {/* 右カラム: 評価パネル or セットアップパネル or AI設定パネル */}
+      {showAiSetup ? (
+        <div style={{ flex: 2, minWidth: 0, padding: '0 8px' }}>
+          <h3 style={{ margin: '0 0 16px', color: '#3a2800' }}>AI対局設定</h3>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 'bold', color: '#7a5a1a', marginBottom: 8 }}>あなたは</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {(['black', 'white'] as const).map(p => {
+                const isHuman = (p === 'black' ? 'white' : 'black') === aiPlayer;
+                return (
+                  <button key={p}
+                    onClick={() => setAiPlayer(p === 'black' ? 'white' : 'black')}
+                    style={{ padding: '6px 16px', fontSize: 13, cursor: 'pointer', borderRadius: 4,
+                      background: isHuman ? '#c8a84a' : '#f0e8d0', border: '1px solid #c8a84a' }}>
+                    {p === 'black' ? '▲先手' : '△後手'}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 13, fontWeight: 'bold', color: '#7a5a1a', marginBottom: 8 }}>難易度</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {AI_LEVELS.map(lv => (
+                <button key={lv.value}
+                  onClick={() => setAiLevel(lv.value)}
+                  style={{ padding: '6px 12px', fontSize: 13, cursor: 'pointer', borderRadius: 4,
+                    background: aiLevel === lv.value ? '#c8a84a' : '#f0e8d0', border: '1px solid #c8a84a' }}>
+                  {lv.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => { resetGame(); setAiMode(true); setShowAiSetup(false); }}
+              style={{ padding: '8px 20px', fontSize: 13, background: '#5a8040', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+              対局開始
+            </button>
+            <button onClick={() => setShowAiSetup(false)}
+              style={{ padding: '8px 16px', fontSize: 13, borderRadius: 4, cursor: 'pointer' }}>
+              キャンセル
+            </button>
+          </div>
+        </div>
+      ) : setupMode ? (
         <div style={{ flex: 2, minWidth: 0, overflowY: 'auto' }}>
           <SetupPanel
             state={gameState} selectedPiece={setupPiece}
