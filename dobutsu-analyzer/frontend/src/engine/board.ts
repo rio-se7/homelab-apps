@@ -1,6 +1,7 @@
 import {
   EMPTY, BABY, ELEPHANT, GIRAFFE, CHICKEN, LION,
   type GameState, type Move, type BoardMove, type DropMove, type MoveRecord,
+  isBoardMove,
 } from './types';
 
 // 方向ベクトル (dx, dy) — Rust board.rs と同一
@@ -54,20 +55,17 @@ export function toShogiNotation(raw: string, turn: 'black' | 'white'): string {
   return `${mark}${col}${row}${pc}${promoted ? '成' : ''}`;
 }
 
-// API レスポンスの手表記 ("B4B3" or "P*B3") をキフ形式に変換
-// 例: ▲B3ひ / △ひ打B2 — toKifuNotation と同じフォーマット
-export function apiMoveToKifu(mv: string, board: number[][], isBlackMove: boolean): string {
-  const mark = isBlackMove ? '▲' : '△';
-  const COL_X: Record<string, number> = { 'A': 2, 'B': 1, 'C': 0 };
-  const ROW_Y: Record<string, number> = { '1': 0, '2': 1, '3': 2, '4': 3 };
+// API レスポンスの mv をオリジナルフレームに逆変換してキフ表記を返す
+export function apiMoveToKifu(apiMv: string, state: GameState): string {
+  const mv = denormalizeApiMove(apiMv, state);
+  const mark = state.turn === 'black' ? '▲' : '△';
   if (mv.includes('*')) {
     const [pc, dest] = mv.split('*');
     return `${mark}${dest}${PIECE_JP[pc] ?? pc}打`;
   }
-  const sx = COL_X[mv[0]], sy = ROW_Y[mv[1]];
-  const piece = isBlackMove
-    ? Math.abs(board[sx]?.[sy] ?? 0)
-    : Math.abs(board[2 - sx]?.[3 - sy] ?? 0);
+  const COL_X: Record<string, number> = { 'A': 2, 'B': 1, 'C': 0 };
+  const sx = COL_X[mv[0]], sy = parseInt(mv[1]) - 1;
+  const piece = Math.abs(state.board[sx]?.[sy] ?? 0);
   const pc = PIECE_JP[pieceChar(piece)] ?? '';
   return `${mark}${mv.slice(2, 4)}${pc}`;
 }
@@ -249,6 +247,55 @@ export function encodeForApi(state: GameState): string {
   const flipped = pack({ ...s, board: flipBoard(s.board) });
   const normalized = packed < flipped ? packed : flipped;
   return normalized.toString(16).padStart(16, '0');
+}
+
+// API の mv は encodeForApi が適用した変換（後手→回転、正規化→A↔C flip）済みのフレームで返ってくる。
+// 表示・着手探索に使う前にオリジナルフレームへ逆変換する。
+export function denormalizeApiMove(apiMv: string, state: GameState): string {
+  const s = state.turn === 'white' ? rotateState(state) : state;
+  const wasFlipped = pack({ ...s, board: flipBoard(s.board) }) < pack(s);
+
+  const fc = (c: string) => c === 'A' ? 'C' : c === 'C' ? 'A' : c;
+  const COL = 'CBA';
+  const COL_X: Record<string, number> = { 'A': 2, 'B': 1, 'C': 0 };
+
+  // 1. A↔C flip を逆算
+  let mv = wasFlipped
+    ? (apiMv.includes('*')
+        ? `${apiMv[0]}*${fc(apiMv[2])}${apiMv.slice(3)}`
+        : `${fc(apiMv[0])}${apiMv[1]}${fc(apiMv[2])}${apiMv.slice(3)}`)
+    : apiMv;
+
+  // 2. 後手の場合は 180° 回転を逆算
+  if (state.turn === 'white') {
+    if (mv.includes('*')) {
+      const tx = COL_X[mv[2]], ty = parseInt(mv[3]) - 1;
+      mv = `${mv[0]}*${COL[2 - tx]}${4 - ty}`;
+    } else {
+      const sx = COL_X[mv[0]], sy = parseInt(mv[1]) - 1;
+      const dx = COL_X[mv[2]], dy = parseInt(mv[3]) - 1;
+      mv = `${COL[2 - sx]}${4 - sy}${COL[2 - dx]}${4 - dy}`;
+    }
+  }
+
+  return mv;
+}
+
+// API の mv をオリジナルフレームの Move オブジェクトに変換する
+export function moveFromApiNotation(apiMv: string, state: GameState): Move | undefined {
+  const mv = denormalizeApiMove(apiMv, state);
+  const COL_X: Record<string, number> = { 'A': 2, 'B': 1, 'C': 0 };
+  const moves = legalMoves(state);
+
+  if (mv.includes('*')) {
+    const PIECE: Record<string, number> = { 'P': BABY, 'E': ELEPHANT, 'G': GIRAFFE };
+    const tx = COL_X[mv[2]], ty = parseInt(mv[3]) - 1;
+    const pt = PIECE[mv[0]];
+    return moves.find(m => !isBoardMove(m) && (m as DropMove).piece === pt && m.to[0] === tx && m.to[1] === ty);
+  }
+  const fx = COL_X[mv[0]], fy = parseInt(mv[1]) - 1;
+  const tx = COL_X[mv[2]], ty = parseInt(mv[3]) - 1;
+  return moves.find(m => isBoardMove(m) && m.from[0] === fx && m.from[1] === fy && m.to[0] === tx && m.to[1] === ty);
 }
 
 function pack(state: GameState): bigint {

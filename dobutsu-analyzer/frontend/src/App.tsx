@@ -6,7 +6,7 @@ import SetupPanel from './components/SetupPanel';
 import { type GameState, type Move, type DropMove, isBoardMove, EMPTY } from './engine/types';
 import {
   initialState, legalMoves, applyMove, checkWinner,
-  encodeForApi, toKifuNotation, apiMoveToKifu,
+  encodeForApi, toKifuNotation, apiMoveToKifu, moveFromApiNotation,
 } from './engine/board';
 import { fetchEval, fetchMoves, type MoveEval } from './api/client';
 
@@ -215,19 +215,8 @@ export default function App() {
     const reviewState = allPositions[reviewIndex];
     if (!reviewState) return;
 
-    // encodeForApi may normalize by flipping columns (A↔C). When that happens the API
-    // returns notations in the flipped frame, but legalMoves uses the original frame.
-    // Fall back to the column-flipped variant to handle both cases.
-    const colFlip = (n: string): string => {
-      const f = (c: string) => c === 'A' ? 'C' : c === 'C' ? 'A' : c;
-      return n.includes('*')
-        ? n[0] + n[1] + f(n[2]) + n.slice(3)          // drop: "P*B3"
-        : f(n[0]) + n[1] + f(n[2]) + n.slice(3);      // board: "B3B2P"
-    };
-
     const startState: GameState = { ...reviewState, turn: asBlack ? 'black' : 'white' };
-    const moves = legalMoves(startState);
-    const firstMove = moves.find(m => m.notation === mv) ?? moves.find(m => m.notation === colFlip(mv));
+    const firstMove = moveFromApiNotation(mv, startState);
     if (!firstMove) return;
 
     setIsLoadingSim(true);
@@ -243,8 +232,7 @@ export default function App() {
       try { resp = await fetchMoves(pos); } catch { break; }
       if (!resp.moves.length) break;
 
-      const bestMv = resp.moves[0].mv;
-      const nextMove = legalMoves(state).find(m => m.notation === bestMv) ?? legalMoves(state).find(m => m.notation === colFlip(bestMv));
+      const nextMove = moveFromApiNotation(resp.moves[0].mv, state);
       if (!nextMove) break;
 
       state = applyMove(state, nextMove);
@@ -271,8 +259,8 @@ export default function App() {
   }, []);
 
   // 合法手の評価行（棋譜と同じ形式）
-  function MoveEvalRow({ me, isBlack, board, onClick }: { me: MoveEval; isBlack: boolean; board?: number[][]; onClick?: () => void }) {
-    const label = apiMoveToKifu(me.mv, board ?? gameState.board, isBlack);
+  function MoveEvalRow({ me, evalState, onClick }: { me: MoveEval; evalState: GameState; onClick?: () => void }) {
+    const label = apiMoveToKifu(me.mv, evalState);
     const bg = me.result === 'win' ? '#d4edda' : me.result === 'lose' ? '#f8d7da' : '#fff3cd';
     const wdl = me.result === 'win' ? '勝' : me.result === 'lose' ? '負' : '分';
     return (
@@ -460,8 +448,8 @@ export default function App() {
               <div style={{ maxHeight: 280, overflowY: 'auto' }}>
                 {(reviewMode && !inSim ? reviewEvals.black : blackMoveEvals).map((me, i) => (
                   <MoveEvalRow
-                    key={i} me={me} isBlack={true}
-                    board={currentDisplayState.board}
+                    key={i} me={me}
+                    evalState={{ ...(reviewMode && !inSim ? allPositions[reviewIndex] : gameState), turn: 'black' as const }}
                     onClick={reviewMode && !inSim ? () => startSimulation(me.mv, true) : undefined}
                   />
                 ))}
@@ -475,8 +463,8 @@ export default function App() {
               <div style={{ maxHeight: 280, overflowY: 'auto' }}>
                 {(reviewMode && !inSim ? reviewEvals.white : whiteMoveEvals).map((me, i) => (
                   <MoveEvalRow
-                    key={i} me={me} isBlack={false}
-                    board={currentDisplayState.board}
+                    key={i} me={me}
+                    evalState={{ ...(reviewMode && !inSim ? allPositions[reviewIndex] : gameState), turn: 'white' as const }}
                     onClick={reviewMode && !inSim ? () => startSimulation(me.mv, false) : undefined}
                   />
                 ))}
