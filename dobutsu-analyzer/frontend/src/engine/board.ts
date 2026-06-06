@@ -27,7 +27,7 @@ function pieceChar(p: number): string {
 // ──────────────────────────────────────────────────────────
 const COL_NUM: Record<string, string> = { 'A': '3', 'B': '2', 'C': '1' };
 const ROW_KAN: Record<string, string> = { '1': '一', '2': '二', '3': '三', '4': '四' };
-const PIECE_JP: Record<string, string> = { 'P': 'ひ', 'E': 'ぞ', 'G': 'き', 'C': 'に', 'L': 'ら' };
+const PIECE_JP: Record<string, string> = { 'P': '雛', 'E': '象', 'G': '麟', 'C': '鶏', 'L': '獅' };
 
 // 棋譜用: 座標はそのまま(B3B2)、▲△・打・成だけ付ける
 // 例: ▲B2 / △C2ひ打 / ▲B1成
