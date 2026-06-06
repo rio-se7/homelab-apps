@@ -48,7 +48,7 @@ export default function EvalChart({ history, highlightMove }: Props) {
           <ReferenceLine y={0} stroke="#888" strokeWidth={1.5} />
           <Tooltip content={<CustomTooltip />} />
           <Line
-            type="monotone"
+            type="linear"
             dataKey="score"
             stroke="#4a90e2"
             strokeWidth={2}
