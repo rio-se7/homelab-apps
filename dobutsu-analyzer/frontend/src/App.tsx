@@ -43,6 +43,7 @@ export default function App() {
   const [simLine, setSimLine] = useState<GameState[]>([]);
   const [simStep, setSimStep] = useState(0);
   const [isLoadingSim, setIsLoadingSim] = useState(false);
+  const [simEvals, setSimEvals] = useState<{ black: MoveEval[]; white: MoveEval[] }>({ black: [], white: [] });
   const inSim = simLine.length > 0;
 
   // 盤面コンテナのサイズに合わせてセルサイズを計算
@@ -92,6 +93,19 @@ export default function App() {
       .then(([b, w]) => setReviewEvals({ black: b.moves, white: w.moves }))
       .catch(() => {});
   }, [reviewMode, reviewIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // シミュレーション: simStep 変化時に現局面の評価を取得
+  useEffect(() => {
+    if (!inSim) return;
+    const state = simLine[simStep];
+    if (!state) return;
+    setSimEvals({ black: [], white: [] });
+    const bp = encodeForApi({ ...state, turn: 'black' });
+    const wp = encodeForApi({ ...state, turn: 'white' });
+    Promise.all([fetchMoves(bp), fetchMoves(wp)])
+      .then(([b, w]) => setSimEvals({ black: b.moves, white: w.moves }))
+      .catch(() => {});
+  }, [inSim, simStep]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 局面変化ごとに両者の合法手と評価を取得
   useEffect(() => {
@@ -248,6 +262,7 @@ export default function App() {
   const exitSim = useCallback(() => {
     setSimLine([]);
     setSimStep(0);
+    setSimEvals({ black: [], white: [] });
   }, []);
 
   const handleChangeHand = useCallback((player: 'black' | 'white', pieceType: number, delta: number) => {
@@ -440,36 +455,46 @@ export default function App() {
           )}
           {!isLoadingSim && (
           <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
-            {/* 先手 */}
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>
-                ▲先手の合法手{reviewMode && !inSim && <span style={{ fontWeight: 'normal', color: '#aaa' }}> (クリックで展開)</span>}
-              </div>
-              <div style={{ maxHeight: 280, overflowY: 'auto' }}>
-                {(reviewMode && !inSim ? reviewEvals.black : blackMoveEvals).map((me, i) => (
-                  <MoveEvalRow
-                    key={i} me={me}
-                    evalState={{ ...(reviewMode && !inSim ? allPositions[reviewIndex] : gameState), turn: 'black' as const }}
-                    onClick={reviewMode && !inSim ? () => startSimulation(me.mv, true) : undefined}
-                  />
-                ))}
-              </div>
-            </div>
-            {/* 後手 */}
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>
-                △後手の合法手{reviewMode && !inSim && <span style={{ fontWeight: 'normal', color: '#aaa' }}> (クリックで展開)</span>}
-              </div>
-              <div style={{ maxHeight: 280, overflowY: 'auto' }}>
-                {(reviewMode && !inSim ? reviewEvals.white : whiteMoveEvals).map((me, i) => (
-                  <MoveEvalRow
-                    key={i} me={me}
-                    evalState={{ ...(reviewMode && !inSim ? allPositions[reviewIndex] : gameState), turn: 'white' as const }}
-                    onClick={reviewMode && !inSim ? () => startSimulation(me.mv, false) : undefined}
-                  />
-                ))}
-              </div>
-            </div>
+            {(() => {
+              const evalBase = inSim ? simLine[simStep] : reviewMode ? allPositions[reviewIndex] : gameState;
+              const blackEvals = inSim ? simEvals.black : reviewMode ? reviewEvals.black : blackMoveEvals;
+              const whiteEvals = inSim ? simEvals.white : reviewMode ? reviewEvals.white : whiteMoveEvals;
+              const canClick = reviewMode && !inSim;
+              return (
+                <>
+                  {/* 先手 */}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>
+                      ▲先手の合法手{canClick && <span style={{ fontWeight: 'normal', color: '#aaa' }}> (クリックで展開)</span>}
+                    </div>
+                    <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                      {blackEvals.map((me, i) => (
+                        <MoveEvalRow
+                          key={i} me={me}
+                          evalState={{ ...evalBase, turn: 'black' as const }}
+                          onClick={canClick ? () => startSimulation(me.mv, true) : undefined}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  {/* 後手 */}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, color: '#7a5a1a', fontWeight: 'bold', marginBottom: 4 }}>
+                      △後手の合法手{canClick && <span style={{ fontWeight: 'normal', color: '#aaa' }}> (クリックで展開)</span>}
+                    </div>
+                    <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                      {whiteEvals.map((me, i) => (
+                        <MoveEvalRow
+                          key={i} me={me}
+                          evalState={{ ...evalBase, turn: 'white' as const }}
+                          onClick={canClick ? () => startSimulation(me.mv, false) : undefined}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
           </div>
           )}
 
