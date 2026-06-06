@@ -7,7 +7,27 @@ import { type GameState, type Move, type DropMove, isBoardMove, EMPTY } from './
 import {
   initialState, legalMoves, applyMove, checkWinner,
   encodeForApi, toKifuNotation, apiMoveToKifu, moveFromApiNotation,
+  encodeKifu, decodeKifu, unpackPosition,
 } from './engine/board';
+
+function parseStartFromUrl() {
+  const hash = window.location.hash;
+  if (hash.startsWith('#k=')) {
+    const result = decodeKifu(hash.slice(3));
+    if (result) {
+      return {
+        gameState: result.states[result.states.length - 1],
+        stateHistory: result.states.slice(0, -1) as GameState[],
+        isFromUrl: true,
+      };
+    }
+  }
+  if (hash.startsWith('#s=')) {
+    const decoded = unpackPosition(hash.slice(3));
+    if (decoded) return { gameState: decoded, stateHistory: [] as GameState[], isFromUrl: true };
+  }
+  return { gameState: initialState(), stateHistory: [] as GameState[], isFromUrl: false };
+}
 import { fetchEval, fetchMoves, type MoveEval } from './api/client';
 
 function toScore(result: string, dtm: number, turn: 'black' | 'white'): number {
@@ -18,20 +38,21 @@ function toScore(result: string, dtm: number, turn: 'black' | 'white'): number {
 }
 
 export default function App() {
-  const [gameState, setGameState] = useState<GameState>(initialState());
-  const [stateHistory, setStateHistory] = useState<GameState[]>([]);
+  const [gameState, setGameState] = useState<GameState>(() => parseStartFromUrl().gameState);
+  const [stateHistory, setStateHistory] = useState<GameState[]>(() => parseStartFromUrl().stateHistory);
   const [selected, setSelected] = useState<[number, number] | null>(null);
   const [selectedDrop, setSelectedDrop] = useState<number | null>(null);
   const [validMoves, setValidMoves] = useState<Move[]>([]);
   const [blackMoveEvals, setBlackMoveEvals] = useState<MoveEval[]>([]);
   const [whiteMoveEvals, setWhiteMoveEvals] = useState<MoveEval[]>([]);
   const [evalHistory, setEvalHistory] = useState<EvalPoint[]>([]);
-  const [winner, setWinner] = useState<'black' | 'white' | null>(null);
+  const [winner, setWinner] = useState<'black' | 'white' | null>(() => checkWinner(parseStartFromUrl().gameState, null));
   const [evalError, setEvalError] = useState<string | null>(null);
   const [flipped, setFlipped] = useState(false);
   const [setupMode, setSetupMode] = useState(false);
   const [setupPiece, setSetupPiece] = useState<number | null>(null);
   const [cellSize, setCellSize] = useState(80);
+  const [copied, setCopied] = useState(false);
   const boardAreaRef = useRef<HTMLDivElement>(null);
 
   // 感想戦モード
@@ -64,13 +85,15 @@ export default function App() {
     return () => obs.disconnect();
   }, []);
 
-  // 初期評価
+  // 初期評価 (URLからロードした局面にも対応)
   useEffect(() => {
-    const pos = encodeForApi(initialState());
-    fetchEval(pos).then(r => {
-      setEvalHistory([{ move: 0, score: toScore(r.result, r.dtm, 'black'), notation: '初期局面' }]);
+    const { stateHistory: initSh, gameState: initGs, isFromUrl } = parseStartFromUrl();
+    const startState = initSh.length > 0 ? initSh[0] : initGs;
+    fetchEval(encodeForApi(startState)).then(r => {
+      const notation = isFromUrl ? '共有局面' : '初期局面';
+      setEvalHistory([{ move: 0, score: toScore(r.result, r.dtm, startState.turn), notation }]);
     }).catch(() => {});
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 全局面配列 (感想戦ナビゲーション用)
   const allPositions = [...stateHistory, gameState];
@@ -409,6 +432,23 @@ export default function App() {
                 style={{ padding: '4px 10px', fontSize: 12, marginLeft: 4 }}>終了</button>
             </>
           )}
+
+          {/* 棋譜共有 */}
+          <button
+            onClick={() => {
+              const startState = stateHistory.length > 0 ? stateHistory[0] : gameState;
+              const encoded = encodeKifu(startState, gameState.history);
+              const url = `${window.location.origin}${window.location.pathname}#k=${encoded}`;
+              window.location.hash = `k=${encoded}`;
+              navigator.clipboard.writeText(url).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }).catch(() => {});
+            }}
+            style={{ padding: '4px 10px', fontSize: 12 }}
+          >
+            {copied ? 'URLをコピー済み' : '棋譜を共有'}
+          </button>
 
           {/* 後手視点トグル */}
           <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', color: '#7a5a1a', marginLeft: 'auto' }}>

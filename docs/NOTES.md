@@ -81,8 +81,9 @@ clubdam.com から採点履歴を自動取得し、可視化と AI フィード�
 - [x] Phase 2: フロントエンド — ゲームエンジン + 盤面UI
 - [x] Phase 3: 評価グラフ（Recharts、評価推移折れ線チャート）
 - [x] Phase 4: 感想戦 + API 最善手シミュレーション
-- [ ] Phase 5: 独自探索エンジン (TypeScript ミニマックス + αβ) + 完全解析との比較
-- [ ] Phase 6: AI対局・棋譜再生・局面URL共有 等
+- [ ] Phase 5: 独自探索エンジン (TypeScript ミニマックス + αβ) + 完全解析との比較 ※完全解析テーブルが優秀なためスキップ予定
+- [x] Phase 6 (一部): 棋譜 URL 共有 (2026-06-06完了)
+- [ ] Phase 6 (残り): AI対局
 
 **Phase 1 実装メモ (2026-05-18完了):**
 - エンコーディング: 田中先生オリジナル (BABY=1, ELEPHANT=2, GIRAFFE=3, CHICKEN=4, LION=5, WHITE=-piece)
@@ -151,9 +152,23 @@ API はこの変換後のフレームで 4 文字手表記 (`"B3B2"`, `"P*B3"`) 
 - `verbatimModuleSyntax: true` (tsconfig) のため型インポートは `import { type Foo }` 形式が必須
 - `encodeForApi` の2段変換（回転＋フリップ）は対称ではない。API 戻り値を扱う箇所はすべて `denormalizeApiMove` を通すこと
 
+**Phase 6 実装メモ (2026-06-06完了):**
+
+*棋譜 URL 共有*
+- URL 形式: `#k=<位置17文字><Base64url棋譜>`
+  - 位置: `packPosition(startState)` = `pack()` の 16hex + `'b'|'w'` (手番)
+  - 棋譜: 1手 = 1バイト（盤上移動 `from*12+to` = 0-143、打ち駒 `144+(pt-1)*12+to` = 144-179）→ URL-safe Base64
+- 任意局面スタートに対応: `stateHistory[0]` を start state として使用
+- `#s=<17文字>` 形式（局面のみ）も引き続き解釈（後方互換）
+- 復元時: `decodeKifu` が `states[]` を構築 → `stateHistory` + `gameState` を完全再現、感想戦がすぐ使える
+- 評価チャートは開始局面の1点のみ（中間評価はフェッチしない）
+
+*エンコーディング詳細 (`engine/board.ts`)*
+- `packPosition(state)` / `unpackPosition(encoded)`: 局面のみ round-trip（API正規化なし）
+- `encodeKifu(startState, moves)` / `decodeKifu(encoded)`: 棋譜フル round-trip
+
 **次のアクション:**
-- [ ] Phase 5: 独自探索エンジン (TypeScript ミニマックス + αβ)
-- [ ] Phase 6: 局面 URL シェア、棋譜読み込み再生
+- [ ] AI対局モード (Phase 6 残り)
 - [ ] k8s マニフェスト作成 (homelab-fleet へ追加)
 
 **既存リソース:**

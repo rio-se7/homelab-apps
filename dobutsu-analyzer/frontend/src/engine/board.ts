@@ -316,3 +316,92 @@ function pack(state: GameState): bigint {
 function flipBoard(board: number[][]): number[][] {
   return [board[2], board[1], board[0]];
 }
+
+function linearPos(x: number, y: number): number { return y * 3 + x; }
+
+const NOTATION_TO_PT: Record<string, number> = { 'P': BABY, 'E': ELEPHANT, 'G': GIRAFFE };
+
+// 棋譜を位置エンコード(17文字) + Base64url(1手=1バイト) でエンコード
+// バイト値: 盤上移動 = from_linear*12 + to_linear (0-143)
+//          打ち駒   = 144 + (pt-1)*12 + to_linear (144-179)
+export function encodeKifu(startState: GameState, moves: MoveRecord[]): string {
+  const pos = packPosition(startState);
+  if (moves.length === 0) return pos;
+  const bytes = moves.map(rec => {
+    if (rec.from !== undefined) {
+      return linearPos(rec.from[0], rec.from[1]) * 12 + linearPos(rec.to[0], rec.to[1]);
+    }
+    const pt = NOTATION_TO_PT[rec.notation[0]] ?? BABY;
+    return 144 + (pt - 1) * 12 + linearPos(rec.to[0], rec.to[1]);
+  });
+  return pos + btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+// encodeKifu の逆変換。不正な文字列なら null を返す
+export function decodeKifu(encoded: string): { startState: GameState; states: GameState[] } | null {
+  if (encoded.length < 17) return null;
+  const startState = unpackPosition(encoded.slice(0, 17));
+  if (!startState) return null;
+
+  const states: GameState[] = [startState];
+  if (encoded.length === 17) return { startState, states };
+
+  const b64 = encoded.slice(17);
+  const padded = b64 + '='.repeat((4 - b64.length % 4) % 4);
+  let bytes: number[];
+  try {
+    bytes = Array.from(atob(padded.replace(/-/g, '+').replace(/_/g, '/'))).map(c => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+
+  let state = startState;
+  for (const byte of bytes) {
+    if (byte > 179) return null;
+    const moves = legalMoves(state);
+    let move: Move | undefined;
+    if (byte < 144) {
+      const from: [number, number] = [Math.floor(byte / 12) % 3, Math.floor(Math.floor(byte / 12) / 3)];
+      const to: [number, number] = [(byte % 12) % 3, Math.floor((byte % 12) / 3)];
+      move = moves.find(m => isBoardMove(m) && m.from[0] === from[0] && m.from[1] === from[1] && m.to[0] === to[0] && m.to[1] === to[1]);
+    } else {
+      const d = byte - 144;
+      const to: [number, number] = [(d % 12) % 3, Math.floor((d % 12) / 3)];
+      const pt = Math.floor(d / 12) + 1;
+      move = moves.find(m => !isBoardMove(m) && (m as DropMove).piece === pt && m.to[0] === to[0] && m.to[1] === to[1]);
+    }
+    if (!move) return null;
+    state = applyMove(state, move);
+    states.push(state);
+  }
+
+  return { startState, states };
+}
+
+// 局面を17文字の文字列にエンコード (16hex + 'b'|'w' for turn)
+export function packPosition(state: GameState): string {
+  return pack(state).toString(16).padStart(16, '0') + (state.turn === 'white' ? 'w' : 'b');
+}
+
+// packPosition の逆変換。不正な文字列なら null を返す
+export function unpackPosition(encoded: string): GameState | null {
+  if (encoded.length !== 17) return null;
+  const turnChar = encoded[16];
+  if (turnChar !== 'b' && turnChar !== 'w') return null;
+  const turn: 'black' | 'white' = turnChar === 'w' ? 'white' : 'black';
+  let val: bigint;
+  try { val = BigInt('0x' + encoded.slice(0, 16)); } catch { return null; }
+  const board: number[][] = Array.from({ length: 3 }, () => new Array(4).fill(0));
+  for (let x = 0; x < 3; x++) {
+    for (let y = 0; y < 4; y++) {
+      const nibble = Number((val >> BigInt((x * 4 + y) * 4)) & 0xFn);
+      board[x][y] = nibble >= 8 ? nibble - 16 : nibble;
+    }
+  }
+  const hand = { black: [0, 0, 0], white: [0, 0, 0] };
+  for (let j = 0; j < 3; j++) {
+    hand.black[j] = Number((val >> BigInt(48 + j * 2)) & 3n);
+    hand.white[j] = Number((val >> BigInt(54 + j * 2)) & 3n);
+  }
+  return { board, hand, turn, history: [] };
+}
