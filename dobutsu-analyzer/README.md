@@ -34,7 +34,26 @@ backend/data/dobutsu/
 
 ## 起動方法
 
-### バックエンド
+### 一括起動（推奨）
+
+```bash
+./dev.sh
+```
+
+バックエンド・フロントエンドを同時に起動する。`Ctrl+C` または Vite の `q` で両方とも停止する。
+フロントエンドは端末に直接アタッチされるため、Vite のインタラクティブショートカット
+（`o`=ブラウザを開く / `r`=再起動 / `u`=URL表示 / `c`=クリア / `q`=終了）がそのまま使える。
+バックエンドのログには `[backend]` プレフィックスが付く。
+
+引数なしでもそのまま起動できるほか、Vite への引数をそのまま渡せる:
+
+```bash
+./dev.sh --port 5174 --host
+```
+
+`DOBUTSU_DATA_DIR` / `DOBUTSU_BACKEND_PORT` 環境変数でバックエンドのデータディレクトリ・ポートを変更できる。
+
+### バックエンド（個別起動）
 
 ```bash
 cd backend/
@@ -43,7 +62,7 @@ cargo run --release -- --data-dir data/dobutsu --port 8080
 
 起動後 `http://localhost:8080/health` が `200 OK` を返せば正常。
 
-### フロントエンド
+### フロントエンド（個別起動）
 
 ```bash
 cd frontend/
