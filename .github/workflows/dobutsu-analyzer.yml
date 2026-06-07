@@ -1,0 +1,50 @@
+name: dobutsu-analyzer build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dobutsu-analyzer/backend/**'
+      - 'dobutsu-analyzer/frontend/**'
+      - '.github/workflows/dobutsu-analyzer.yml'
+
+env:
+  REGISTRY: ghcr.io
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  backend:
+    runs-on: [self-hosted, linux, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push backend image
+        run: |
+          set -euo pipefail
+          IMAGE="$REGISTRY/${{ github.repository_owner }}/dobutsu-analyzer-backend"
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" dobutsu-analyzer/backend
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+  frontend:
+    runs-on: [self-hosted, linux, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push frontend image
+        run: |
+          set -euo pipefail
+          IMAGE="$REGISTRY/${{ github.repository_owner }}/dobutsu-analyzer-frontend"
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" dobutsu-analyzer/frontend
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
