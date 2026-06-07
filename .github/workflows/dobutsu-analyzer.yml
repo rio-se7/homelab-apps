@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   backend:
-    runs-on: [self-hosted, linux, arm64]
+    runs-on: homelab-apps
     steps:
       - uses: actions/checkout@v4
 
@@ -34,7 +34,7 @@ jobs:
           docker push "$IMAGE:latest"
 
   frontend:
-    runs-on: [self-hosted, linux, arm64]
+    runs-on: homelab-apps
     steps:
       - uses: actions/checkout@v4
 
