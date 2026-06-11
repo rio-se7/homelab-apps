@@ -1,0 +1,33 @@
+name: suiso build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'suiso/**'
+      - '.github/workflows/suiso.yml'
+
+env:
+  REGISTRY: ghcr.io
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: homelab-apps
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push suiso image
+        run: |
+          set -euo pipefail
+          IMAGE="$REGISTRY/${{ github.repository_owner }}/suiso"
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" suiso
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
