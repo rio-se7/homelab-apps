@@ -9,12 +9,29 @@ homelab で動かすアプリのソースコードをまとめるモノレポ。
 
 ```
 homelab-apps (source)
-  → Docker build
-  → push image
-  → update image tag in homelab-fleet/charts/<app>/
+  → main マージ → CI (ARC self-hosted runner) が Docker build
+  → ghcr.io へ :<commit-sha> と :latest を push
+  → homelab-fleet/infra/<app>/values.yaml の tag を <commit-sha> に bump（PR）
   → ArgoCD sync
   → k3s
 ```
+
+---
+
+## App Status（2026-06-11 時点）
+
+| アプリ | 状態 | 場所 |
+|--------|------|------|
+| dobutsu-analyzer | **稼働中**（k3s / dobutsu.senarion.net） | `main` |
+| briefcast | WIP | `feat/briefcast` ブランチ |
+| rsscast | WIP | `feat/rsscast` ブランチ |
+| mahjong-trainer | WIP | `feat/mahjong-trainer` ブランチ |
+| dashboard | 構想のみ（下記） | — |
+| dam-tracker | 構想のみ（下記） | — |
+
+> WIP アプリを `main` へ昇格する際は `docs/REVIEW.md`（2026-06-09）の観点で再レビューすること:
+> public repo × self-hosted runner の境界（`pull_request` を self-hosted で動かさない）、
+> image tag の SHA pin、securityContext、CORS / readiness。
 
 ---
 
@@ -178,7 +195,7 @@ API はこの変換後のフレームで 4 文字手表記 (`"B3B2"`, `"P*B3"`) 
 
 **次のアクション:**
 - [ ] AI対局モード (Phase 6 残り)
-- [ ] k8s マニフェスト作成 (homelab-fleet へ追加)
+- [x] k8s マニフェスト作成 (homelab-fleet `infra/dobutsu-analyzer/` でデプロイ済み)
 
 **既存リソース:**
 - 田中先生の完全解析データ・プログラム: https://www.tanaka.ecc.u-tokyo.ac.jp/ktanaka/dobutsushogi/
