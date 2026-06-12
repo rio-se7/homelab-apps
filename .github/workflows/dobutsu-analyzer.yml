@@ -48,3 +48,12 @@ jobs:
           docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" dobutsu-analyzer/frontend
           docker push "$IMAGE:${{ github.sha }}"
           docker push "$IMAGE:latest"
+
+  bump:
+    needs: [backend, frontend]
+    uses: ./.github/workflows/bump-fleet.yml
+    with:
+      app: dobutsu-analyzer
+    secrets:
+      BUMP_APP_ID: ${{ secrets.BUMP_APP_ID }}
+      BUMP_APP_PRIVATE_KEY: ${{ secrets.BUMP_APP_PRIVATE_KEY }}
