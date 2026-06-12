@@ -385,8 +385,14 @@ export class Aquarium {
     }
 
     const dead = fish.mode === 'dead';
-    const sat = p.ready || dead ? 62 : 25;
+    // Pastel palette: sat 55, light 60 base (not-ready: sat 25 maintained).
+    const sat = p.ready || dead ? 55 : 25;
     const size = fish.size;
+
+    // Per-individual variation derived from fish.seed (deterministic).
+    // Use irrational multipliers to break linear correlation between round and finScale.
+    const round = 0.62 + ((fish.seed * 0.618) % 1) * 0.1;
+    const finScale = 0.9 + ((fish.seed * 2.414) % 1) * 0.25;
 
     ctx.save();
     ctx.translate(fish.x, fish.y);
@@ -396,72 +402,127 @@ export class Aquarium {
     if (dead) ctx.scale(1, -1);
     ctx.globalAlpha = alpha;
 
-    const wag = Math.sin(t * (dead ? 1.5 : 7) + fish.phase) * (dead ? 0.15 : 0.5);
+    const wag = Math.sin(t * (dead ? 1.5 : 7) + fish.phase) * (dead ? 0.15 : 0.35);
     const hue = dead ? 4 : fish.hue;
-    const light = dead ? 42 : 52;
+    // dead: light 42 (red-ish darker), swim/ready: 60 base.
+    const light = dead ? 42 : 60;
 
-    // Tail.
+    // Squash & stretch (swim only).
+    if (!dead) {
+      const squeeze = Math.sin(t * 7 + fish.phase) * 0.03;
+      ctx.scale(1 + squeeze, 1 - squeeze);
+    }
+
+    // Tail — rounded fan: two quadratic curves + rounded tip.
+    const tailWagOffset = wag * size * 0.4;
     ctx.beginPath();
-    ctx.moveTo(-size * 0.7, 0);
-    ctx.quadraticCurveTo(-size * 1.1, wag * size * 0.3, -size * 1.45, -size * 0.42 + wag * size * 0.5);
-    ctx.quadraticCurveTo(-size * 1.15, wag * size * 0.4, -size * 1.45, size * 0.42 + wag * size * 0.5);
-    ctx.quadraticCurveTo(-size * 1.1, wag * size * 0.3, -size * 0.7, 0);
+    ctx.moveTo(-size * 0.65, 0);
+    ctx.quadraticCurveTo(
+      -size * 1.05, tailWagOffset - size * 0.15 * finScale,
+      -size * 1.38, -size * 0.36 * finScale + tailWagOffset,
+    );
+    ctx.quadraticCurveTo(
+      -size * 1.5, tailWagOffset,
+      -size * 1.38, size * 0.36 * finScale + tailWagOffset,
+    );
+    ctx.quadraticCurveTo(
+      -size * 1.05, tailWagOffset + size * 0.15 * finScale,
+      -size * 0.65, 0,
+    );
     ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light - 10}%, 0.95)`;
     ctx.fill();
 
-    // Body.
-    const grad = ctx.createLinearGradient(0, -size * 0.6, 0, size * 0.6);
-    grad.addColorStop(0, `hsl(${hue}, ${sat}%, ${light + 12}%)`);
-    grad.addColorStop(1, `hsl(${hue}, ${sat + 6}%, ${light - 16}%)`);
+    // Body gradient: pastel light+14 top → light-6 bottom.
+    const grad = ctx.createLinearGradient(0, -size * round, 0, size * round);
+    grad.addColorStop(0, `hsl(${hue}, ${sat}%, ${light + 14}%)`);
+    grad.addColorStop(1, `hsl(${hue}, ${sat}%, ${light - 6}%)`);
     ctx.beginPath();
-    ctx.ellipse(0, 0, size, size * 0.55, 0, 0, TAU);
+    ctx.ellipse(0, 0, size, size * round, 0, 0, TAU);
     ctx.fillStyle = grad;
     ctx.fill();
+    // Body outline for definition.
+    ctx.strokeStyle = `hsla(${hue}, ${sat}%, ${light - 28}%, 0.55)`;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
 
-    // Dorsal fin.
+    // Belly highlight (soft white ellipse overlaid on lower body).
     ctx.beginPath();
-    ctx.moveTo(-size * 0.25, -size * 0.5);
-    ctx.quadraticCurveTo(size * 0.1, -size * 1.0, size * 0.4, -size * 0.45);
-    ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light - 6}%, 0.9)`;
+    ctx.ellipse(size * 0.05, size * round * 0.35, size * 0.75, size * round * 0.5, 0, 0, TAU);
+    ctx.fillStyle = `hsla(${hue}, 30%, 92%, 0.5)`;
     ctx.fill();
 
-    // Pectoral fin (paddles with the tail beat).
+    // Dorsal fin (smaller, rounder).
     ctx.beginPath();
-    ctx.moveTo(size * 0.1, size * 0.15);
-    ctx.quadraticCurveTo(-size * 0.15, size * (0.55 + wag * 0.2), size * 0.32, size * 0.42);
+    ctx.moveTo(-size * 0.2, -size * 0.45 * round);
+    ctx.quadraticCurveTo(size * 0.05, -size * 0.78 * finScale, size * 0.38, -size * 0.42 * round);
+    ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light - 6}%, 0.88)`;
+    ctx.fill();
+
+    // Pectoral fin (smaller, rounder, paddles with tail beat).
+    ctx.beginPath();
+    ctx.moveTo(size * 0.1, size * 0.18 * round);
+    ctx.quadraticCurveTo(-size * 0.1 * finScale, size * (0.48 + wag * 0.18) * round, size * 0.3, size * 0.38 * round);
     ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light - 4}%, 0.8)`;
     ctx.fill();
 
-    // Stripe.
-    if (size > 16) {
-      ctx.beginPath();
-      ctx.ellipse(-size * 0.15, 0, size * 0.12, size * 0.5, 0, 0, TAU);
-      ctx.fillStyle = `hsla(${hue}, ${sat + 8}%, ${light - 20}%, 0.35)`;
-      ctx.fill();
-    }
+    // Effective Y-flip: left-facing XOR dead. When this is true the local
+    // coordinate space is mirrored vertically, so arc angles that look like a
+    // smile in local space will appear as a frown on screen, and vice-versa.
+    // We compensate by mirroring the arc angles and the centre-y before drawing.
+    const mouthFlip = (Math.cos(fish.angle) < 0) !== dead;
 
-    // Eye (X-ed out when dead).
+    // Eye (X-ed out when dead, big cute eye when alive).
     if (dead) {
       ctx.strokeStyle = 'rgba(20, 8, 8, 0.9)';
       ctx.lineWidth = 1.6;
-      const ex = size * 0.55;
-      const ey = -size * 0.1;
-      const r = size * 0.12;
+      const ex = size * 0.45;
+      const ey = -size * 0.15;
+      const er = size * 0.13;
       ctx.beginPath();
-      ctx.moveTo(ex - r, ey - r);
-      ctx.lineTo(ex + r, ey + r);
-      ctx.moveTo(ex + r, ey - r);
-      ctx.lineTo(ex - r, ey + r);
+      ctx.moveTo(ex - er, ey - er);
+      ctx.lineTo(ex + er, ey + er);
+      ctx.moveTo(ex + er, ey - er);
+      ctx.lineTo(ex - er, ey + er);
+      ctx.stroke();
+      // Dead mouth: への字 (reversed arc).
+      // Local angles: [1.2π, 1.8π]. When mouthFlip, mirror to [2π-1.8π, 2π-1.2π] = [0.2π, 0.8π].
+      const [da0, da1] = mouthFlip ? [0.2 * Math.PI, 0.8 * Math.PI] : [1.2 * Math.PI, 1.8 * Math.PI];
+      const dmy = mouthFlip ? -size * 0.1 : size * 0.1;
+      ctx.beginPath();
+      ctx.arc(size * 0.75, dmy, size * 0.09, da0, da1);
+      ctx.strokeStyle = `hsla(${hue}, 40%, 25%, 0.6)`;
+      ctx.lineWidth = 1.2;
       ctx.stroke();
     } else {
+      // White sclera.
       ctx.beginPath();
-      ctx.arc(size * 0.55, -size * 0.1, size * 0.16, 0, TAU);
-      ctx.fillStyle = '#e9f4ff';
+      ctx.arc(size * 0.45, -size * 0.15, size * 0.22, 0, TAU);
+      ctx.fillStyle = 'white';
       ctx.fill();
+      // Pupil.
       ctx.beginPath();
-      ctx.arc(size * 0.6, -size * 0.1, size * 0.08, 0, TAU);
-      ctx.fillStyle = '#101820';
+      ctx.arc(size * 0.5, -size * 0.13, size * 0.13, 0, TAU);
+      ctx.fillStyle = '#1a2330';
       ctx.fill();
+      // Highlight — the key to cuteness.
+      ctx.beginPath();
+      ctx.arc(size * 0.46, -size * 0.18, size * 0.05, 0, TAU);
+      ctx.fillStyle = 'white';
+      ctx.fill();
+      // Blush cheek.
+      ctx.beginPath();
+      ctx.ellipse(size * 0.3, size * 0.14, size * 0.15, size * 0.09, 0, 0, TAU);
+      ctx.fillStyle = 'hsla(350, 80%, 78%, 0.4)';
+      ctx.fill();
+      // Smile mouth.
+      // Local angles: [0.2π, 0.8π]. When mouthFlip, mirror to [2π-0.8π, 2π-0.2π] = [1.2π, 1.8π].
+      const [sa0, sa1] = mouthFlip ? [1.2 * Math.PI, 1.8 * Math.PI] : [0.2 * Math.PI, 0.8 * Math.PI];
+      const smy = mouthFlip ? -size * 0.1 : size * 0.1;
+      ctx.beginPath();
+      ctx.arc(size * 0.75, smy, size * 0.09, sa0, sa1);
+      ctx.strokeStyle = `hsla(${hue}, 40%, 25%, 0.6)`;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
     }
 
     // Restart flash.
@@ -508,6 +569,7 @@ export class Aquarium {
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.translate(fish.x, fish.y + Math.sin(t * 2 + fish.seed) * 3);
+    // Egg shell.
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, TAU);
     ctx.fillStyle = `hsla(${fish.hue}, 50%, 80%, 0.25)`;
@@ -515,10 +577,23 @@ export class Aquarium {
     ctx.strokeStyle = `hsla(${fish.hue}, 60%, 85%, 0.6)`;
     ctx.lineWidth = 1.2;
     ctx.stroke();
+    // Yolk.
     ctx.beginPath();
     ctx.arc(r * 0.1, r * 0.15, r * 0.35, 0, TAU);
     ctx.fillStyle = `hsla(${fish.hue}, 65%, 60%, 0.8)`;
     ctx.fill();
+    // Sleeping eyes: two downward arcs (⌣ ⌣) on the yolk.
+    const eyeY = r * 0.05;
+    const eyeSpacing = r * 0.22;
+    const eyeArcR = r * 0.12;
+    ctx.strokeStyle = `hsla(${fish.hue}, 50%, 35%, 0.7)`;
+    ctx.lineWidth = 1.1;
+    ctx.lineCap = 'round';
+    for (let side = -1; side <= 1; side += 2) {
+      ctx.beginPath();
+      ctx.arc(r * 0.1 + side * eyeSpacing, eyeY, eyeArcR, 0, Math.PI);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -529,11 +604,13 @@ export class Aquarium {
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.translate(fish.x, fish.y);
+    // Dome.
     ctx.beginPath();
     ctx.arc(0, 0, r * pulse, Math.PI, 0);
     ctx.closePath();
     ctx.fillStyle = `hsla(${fish.hue}, 60%, 75%, 0.5)`;
     ctx.fill();
+    // Tentacles.
     for (let i = -2; i <= 2; i++) {
       ctx.beginPath();
       ctx.moveTo(i * r * 0.3, 0);
@@ -547,6 +624,24 @@ export class Aquarium {
       ctx.lineWidth = 1.1;
       ctx.stroke();
     }
+    // Face: closed eyes (^ ^ upward arcs) and small "o" mouth.
+    const faceY = -r * 0.18 * pulse;
+    const eyeSpacing = r * 0.28;
+    const eyeArcR = r * 0.14;
+    ctx.strokeStyle = `hsla(${fish.hue}, 50%, 35%, 0.45)`;
+    ctx.lineWidth = 1.1;
+    ctx.lineCap = 'round';
+    for (let side = -1; side <= 1; side += 2) {
+      ctx.beginPath();
+      ctx.arc(side * eyeSpacing, faceY, eyeArcR, Math.PI, 0);
+      ctx.stroke();
+    }
+    // Small "o" mouth.
+    ctx.beginPath();
+    ctx.arc(0, faceY + r * 0.24, r * 0.07, 0, TAU);
+    ctx.strokeStyle = `hsla(${fish.hue}, 40%, 40%, 0.4)`;
+    ctx.lineWidth = 1.0;
+    ctx.stroke();
     ctx.restore();
   }
 }
