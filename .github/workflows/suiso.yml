@@ -31,3 +31,12 @@ jobs:
           docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" suiso
           docker push "$IMAGE:${{ github.sha }}"
           docker push "$IMAGE:latest"
+
+  bump:
+    needs: build
+    uses: ./.github/workflows/bump-fleet.yml
+    with:
+      app: suiso
+    secrets:
+      BUMP_APP_ID: ${{ secrets.BUMP_APP_ID }}
+      BUMP_APP_PRIVATE_KEY: ${{ secrets.BUMP_APP_PRIVATE_KEY }}

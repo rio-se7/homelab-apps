@@ -1,0 +1,79 @@
+name: bump fleet image tag
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: "App directory name in homelab-fleet infra/<app>/"
+        required: true
+        type: string
+    secrets:
+      BUMP_APP_ID:
+        required: true
+      BUMP_APP_PRIVATE_KEY:
+        required: true
+
+jobs:
+  bump:
+    # GitHub-hosted: public repo なので無料、gh/git 同梱、ARC runner を塞がない
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read  # GITHUB_TOKEN は使わない(fleet 操作は FLEET_BUMP_TOKEN)
+    steps:
+      - name: Mint installation token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.BUMP_APP_ID }}
+          private-key: ${{ secrets.BUMP_APP_PRIVATE_KEY }}
+          owner: rio-se7
+          repositories: homelab-fleet
+
+      - name: Checkout homelab-fleet
+        uses: actions/checkout@v4
+        with:
+          repository: rio-se7/homelab-fleet
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Bump image tags to ${{ github.sha }}
+        id: bump
+        run: |
+          set -euo pipefail
+          FILE="infra/${{ inputs.app }}/values.yaml"
+          # Only rewrite 40-hex SHA tags of our own ghcr images in this app's values.
+          sed -E -i "s|(ghcr\.io/rio-se7/[A-Za-z0-9._-]+:)[0-9a-f]{40}|\1${{ github.sha }}|g" "$FILE"
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No SHA-pinned ghcr.io/rio-se7 image found (or already up to date) in $FILE"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff
+          fi
+
+      - name: Open PR in homelab-fleet
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          APP="${{ inputs.app }}"
+          SHORT="${GITHUB_SHA::7}"
+          BRANCH="bot/bump-${APP}-${SHORT}"
+          git config user.name "${{ steps.app-token.outputs.app-slug }}[bot]"
+          git config user.email "${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add "infra/${APP}/values.yaml"
+          git commit -m "chore(${APP}): bump image to ${SHORT} (auto)"
+          git push -f origin "$BRANCH"
+          # 同一 app の古い bot PR をクローズ(最新の bump だけ残す)
+          gh pr list --repo rio-se7/homelab-fleet --state open \
+            --search "head:bot/bump-${APP}- -head:${BRANCH}" --json number --jq '.[].number' \
+          | while read -r n; do gh pr close "$n" --repo rio-se7/homelab-fleet --delete-branch; done
+          # 同一ブランチの PR が既にあれば作らない(push -f で内容は更新済み)
+          if [ -z "$(gh pr list --repo rio-se7/homelab-fleet --head "$BRANCH" --json number --jq '.[].number')" ]; then
+            printf 'Automated bump from rio-se7/homelab-apps@%s.\n\nBuilt by workflow run: %s/%s/actions/runs/%s\n' \
+              "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            | gh pr create --repo rio-se7/homelab-fleet --base main --head "$BRANCH" \
+                --title "chore(${APP}): bump image to ${SHORT}" \
+                --body-file -
+          fi
