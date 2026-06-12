@@ -18,16 +18,19 @@ homelab-apps (source)
 
 ---
 
-## App Status（2026-06-11 時点）
+## App Status（2026-06-12 時点）
 
 | アプリ | 状態 | 場所 |
 |--------|------|------|
 | dobutsu-analyzer | **稼働中**（k3s / dobutsu.senarion.net） | `main` |
+| suiso（水槽） | **稼働中**（k3s / suiso.senarion.net） | `main` |
 | briefcast | WIP | `feat/briefcast` ブランチ |
 | rsscast | WIP | `feat/rsscast` ブランチ |
 | mahjong-trainer | WIP | `feat/mahjong-trainer` ブランチ |
 | dashboard | 構想のみ（下記） | — |
 | dam-tracker | 構想のみ（下記） | — |
+
+新規アプリの構想・ピッチは [IDEAS.md](IDEAS.md) に集約（着手決定時にこの NOTES へ昇格）。
 
 > WIP アプリを `main` へ昇格する際は `docs/REVIEW.md`（2026-06-09）の観点で再レビューすること:
 > public repo × self-hosted runner の境界（`pull_request` を self-hosted で動かさない）、
