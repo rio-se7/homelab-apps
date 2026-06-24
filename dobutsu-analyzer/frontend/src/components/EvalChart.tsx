@@ -2,10 +2,11 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ReferenceLine, ResponsiveContainer,
 } from 'recharts';
+import { scoreToMoves, MATE_BASE } from '../engine/score';
 
 export interface EvalPoint {
   move: number;       // 手数 (0 = 初期局面)
-  score: number;      // + = 先手有利, - = 後手有利  (±手数)
+  score: number;      // 符号 = 優勢側 (+先手 / −後手), 絶対値 = 勝勢の強さ (mate に近いほど大)
   notation: string;   // 棋譜表記
 }
 
@@ -17,9 +18,10 @@ interface Props {
 function CustomTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   const d: EvalPoint = payload[0].payload;
-  const abs = Math.abs(d.score);
   const side = d.score > 0 ? '先手' : d.score < 0 ? '後手' : '';
-  const label = d.score === 0 ? '引き分け' : `${side}勝ち ${abs}手`;
+  const label = d.score === 0
+    ? '引き分け'
+    : `${side}勝ち ${scoreToMoves(d.score)}手`;   // exact mate distance recovered from score
   return (
     <div style={{ background: '#fff', border: '1px solid #ccc', padding: '6px 10px', fontSize: 12 }}>
       <div>{d.move === 0 ? '初期局面' : `${d.move}手目: ${d.notation}`}</div>
@@ -31,8 +33,8 @@ function CustomTooltip({ active, payload }: any) {
 export default function EvalChart({ history, highlightMove }: Props) {
   if (history.length === 0) return null;
 
-  const maxAbs = Math.max(...history.map(p => Math.abs(p.score)), 1);
-  const domain: [number, number] = [-maxAbs, maxAbs];
+  // 手ごとの再スケールを止め、Y軸を全局面で固定する
+  const domain: [number, number] = [-(MATE_BASE - 1), MATE_BASE - 1];
 
   return (
     <div>
