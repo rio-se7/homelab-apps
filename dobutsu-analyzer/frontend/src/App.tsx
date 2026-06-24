@@ -29,6 +29,12 @@ function parseStartFromUrl() {
   return { gameState: initialState(), stateHistory: [] as GameState[], isFromUrl: false };
 }
 import { fetchEval, fetchMoves, type MoveEval } from './api/client';
+import { toScore } from './engine/score';
+import { analyzeCritical } from './analysis/critical';
+import { analyzeGame, type BlunderEntry } from './analysis/blunderReport';
+import { loadStore, saveStore } from './quiz/srs';
+import { seedPositions } from './quiz/positions';
+import QuizPanel from './quiz/QuizPanel';
 
 type AiLevel = 'strongest' | 'strong' | 'normal' | 'weak';
 const AI_LEVELS: { value: AiLevel; label: string; prob: number }[] = [
@@ -37,13 +43,6 @@ const AI_LEVELS: { value: AiLevel; label: string; prob: number }[] = [
   { value: 'normal',    label: '普通', prob: 0.7 },
   { value: 'weak',      label: '弱い', prob: 0.5 },
 ];
-
-function toScore(result: string, dtm: number, turn: 'black' | 'white'): number {
-  const d = dtm + 1;
-  if (result === 'draw') return 0;
-  const blackWins = turn === 'black' ? result === 'win' : result === 'lose';
-  return blackWins ? d : -d;
-}
 
 export default function App() {
   const [gameState, setGameState] = useState<GameState>(() => parseStartFromUrl().gameState);
@@ -72,6 +71,14 @@ export default function App() {
   const [reviewMode, setReviewMode] = useState(false);
   const [reviewIndex, setReviewIndex] = useState(0);
   const [reviewEvals, setReviewEvals] = useState<{ black: MoveEval[]; white: MoveEval[] }>({ black: [], white: [] });
+
+  // ブランダー解析（反省点）
+  const [blunders, setBlunders] = useState<BlunderEntry[] | null>(null);
+  const [analyzingBlunders, setAnalyzingBlunders] = useState(false);
+  const [learnerSide, setLearnerSide] = useState<'black' | 'white'>('white');
+
+  // クイズモード
+  const [quizMode, setQuizMode] = useState(false);
 
   // シミュレーション（感想戦中に合法手を選択 → 最善手で終局まで展開）
   const [simLine, setSimLine] = useState<GameState[]>([]);
@@ -127,6 +134,22 @@ export default function App() {
 
   // 全局面配列 (感想戦ナビゲーション用)
   const allPositions = [...stateHistory, gameState];
+
+  // 反省点解析: 自手番の WDL 悪化手を列挙し、ブランダー局面を SRS に登録（クイズ送り）
+  const runBlunderAnalysis = useCallback(() => {
+    setAnalyzingBlunders(true);
+    const positions = [...stateHistory, gameState];
+    analyzeGame(positions, learnerSide)
+      .then(report => {
+        setBlunders(report);
+        if (report.length > 0) {
+          const states = report.map(e => positions[e.ply - 1]);
+          saveStore(seedPositions(loadStore(), states));
+        }
+      })
+      .catch(() => setBlunders([]))
+      .finally(() => setAnalyzingBlunders(false));
+  }, [stateHistory, gameState, learnerSide]);
 
   // 表示する局面: シミュレーション中 > 感想戦 > 通常
   const currentDisplayState = inSim
@@ -355,7 +378,10 @@ export default function App() {
   }, []);
 
   // 合法手の評価行（棋譜と同じ形式）
-  function MoveEvalRow({ me, evalState, onClick }: { me: MoveEval; evalState: GameState; onClick?: () => void }) {
+  function MoveEvalRow({ me, evalState, onClick, isOnlyMove, onlyMoveLabel }: {
+    me: MoveEval; evalState: GameState; onClick?: () => void;
+    isOnlyMove?: boolean; onlyMoveLabel?: string;
+  }) {
     const label = apiMoveToKifu(me.mv, evalState);
     const bg = me.result === 'win' ? '#d4edda' : me.result === 'lose' ? '#f8d7da' : '#fff3cd';
     const wdl = me.result === 'win' ? '勝' : me.result === 'lose' ? '負' : '分';
@@ -368,13 +394,21 @@ export default function App() {
           borderRadius: 3, fontSize: 14,
           display: 'flex', justifyContent: 'space-between', gap: 4,
           cursor: onClick ? 'pointer' : 'default',
-          outline: onClick ? undefined : undefined,
+          border: isOnlyMove ? '2px solid #e0a020' : '2px solid transparent',
           transition: 'filter 0.1s',
         }}
         onMouseEnter={e => { if (onClick) (e.currentTarget as HTMLElement).style.filter = 'brightness(0.93)'; }}
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.filter = ''; }}
       >
-        <span style={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{label}</span>
+        <span style={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+          {isOnlyMove && (
+            <span style={{
+              fontFamily: 'sans-serif', fontSize: 11, color: '#fff', background: '#e0a020',
+              borderRadius: 3, padding: '0 4px', marginRight: 4,
+            }}>★{onlyMoveLabel}</span>
+          )}
+          {label}
+        </span>
         <span style={{ color: '#555', whiteSpace: 'nowrap' }}>
           {wdl}{me.dtm > 0 ? ` ${me.dtm + 1}手` : ''}
         </span>
@@ -401,6 +435,14 @@ export default function App() {
     : setupMode ? '局面を設定中'
     : isAiThinking ? 'AI思考中...'
     : `${gameState.turn === 'black' ? '先手' : '後手'}の番`;
+
+  if (quizMode) {
+    return (
+      <div style={{ fontFamily: 'sans-serif', padding: 24, background: '#faf6ee', height: '100vh', boxSizing: 'border-box', overflow: 'auto', display: 'flex' }}>
+        <QuizPanel onExit={() => setQuizMode(false)} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ fontFamily: 'sans-serif', padding: 24, display: 'flex', gap: 32, background: '#faf6ee', height: '100vh', boxSizing: 'border-box', overflow: 'hidden' }}>
@@ -443,7 +485,13 @@ export default function App() {
                 ← 1手戻る
               </button>
               <button
-                onClick={() => { setReviewMode(true); setReviewIndex(allPositions.length - 1); setReviewEvals({ black: [], white: [] }); }}
+                onClick={() => {
+                  setReviewMode(true);
+                  setReviewIndex(allPositions.length - 1);
+                  setReviewEvals({ black: [], white: [] });
+                  setBlunders(null);
+                  if (aiMode) setLearnerSide(aiPlayer === 'black' ? 'white' : 'black');
+                }}
                 disabled={stateHistory.length === 0}
                 style={{ padding: '4px 10px', fontSize: 12, opacity: stateHistory.length === 0 ? 0.5 : 1 }}>
                 感想戦
@@ -460,6 +508,10 @@ export default function App() {
                   </button>
                 </>
               )}
+              <button onClick={() => setQuizMode(true)}
+                style={{ padding: '4px 10px', fontSize: 12, background: '#e8dcc0' }}>
+                クイズ
+              </button>
               {aiMode && (
                 <span style={{ fontSize: 12, color: '#7a5a1a' }}>
                   AI {aiPlayer === 'black' ? '▲先手' : '△後手'} / {AI_LEVELS.find(l => l.value === aiLevel)?.label}
@@ -603,6 +655,48 @@ export default function App() {
           <h3 style={{ margin: '0 0 12px', color: '#3a2800' }}>完全解析評価</h3>
           <EvalChart history={evalHistory} highlightMove={reviewMode ? reviewIndex : undefined} />
 
+          {/* 反省点（ブランダー解析）— 感想戦中のみ */}
+          {reviewMode && !inSim && (
+            <div style={{ marginTop: 12, padding: '10px 12px', background: '#fff', borderRadius: 6, border: '1px solid #e8dcc0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 'bold', color: '#3a2800' }}>反省点（ブランダー解析）</span>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {(['black', 'white'] as const).map(s => (
+                    <button key={s} onClick={() => setLearnerSide(s)}
+                      style={{ padding: '2px 8px', fontSize: 11, borderRadius: 3, cursor: 'pointer',
+                        border: '1px solid #c8a84a', background: learnerSide === s ? '#c8a84a' : '#f0e8d0' }}>
+                      {s === 'black' ? '▲先手を解析' : '△後手を解析'}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={runBlunderAnalysis} disabled={analyzingBlunders || allPositions.length < 2}
+                  style={{ padding: '3px 10px', fontSize: 12, marginLeft: 'auto',
+                    opacity: analyzingBlunders || allPositions.length < 2 ? 0.5 : 1 }}>
+                  {analyzingBlunders ? '解析中…' : '反省点を解析'}
+                </button>
+              </div>
+              {blunders !== null && (
+                blunders.length === 0 ? (
+                  <div style={{ fontSize: 13, color: '#2a7a2a' }}>反省点なし — 最善を外していません 👏</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {blunders.map((b, i) => (
+                      <div key={i} onClick={() => setReviewIndex(b.ply)}
+                        title="クリックで該当手へジャンプ"
+                        style={{ cursor: 'pointer', fontSize: 13, padding: '4px 8px', borderRadius: 4,
+                          background: b.severity === 'blunder' ? '#f8d7da' : '#fff3cd',
+                          border: '1px solid', borderColor: b.severity === 'blunder' ? '#e0a0a0' : '#e0c060' }}>
+                        <strong>{b.ply}手目</strong> {b.detail}：あなた <span style={{ fontFamily: 'monospace' }}>{b.playedKifu}</span>
+                        {' / '}最善 <span style={{ fontFamily: 'monospace' }}>{b.bestKifu}</span>
+                      </div>
+                    ))}
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>※ ブランダー局面はクイズに登録されました</div>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+
           {evalError && <div style={{ fontSize: 12, color: '#c00', margin: '8px 0' }}>{evalError}</div>}
 
           {/* 先手・後手の合法手（横並び） */}
@@ -618,6 +712,8 @@ export default function App() {
               const blackEvals = inSim ? simEvals.black : reviewMode ? reviewEvals.black : blackMoveEvals;
               const whiteEvals = inSim ? simEvals.white : reviewMode ? reviewEvals.white : whiteMoveEvals;
               const canClick = reviewMode && !inSim;
+              const blackCrit = analyzeCritical(blackEvals);
+              const whiteCrit = analyzeCritical(whiteEvals);
               return (
                 <>
                   {/* 先手 */}
@@ -631,6 +727,8 @@ export default function App() {
                           key={i} me={me}
                           evalState={{ ...evalBase, turn: 'black' as const }}
                           onClick={canClick ? () => startSimulation(me.mv, true) : undefined}
+                          isOnlyMove={i === 0 && blackCrit.isOnlyMove}
+                          onlyMoveLabel={blackCrit.label}
                         />
                       ))}
                     </div>
@@ -646,6 +744,8 @@ export default function App() {
                           key={i} me={me}
                           evalState={{ ...evalBase, turn: 'white' as const }}
                           onClick={canClick ? () => startSimulation(me.mv, false) : undefined}
+                          isOnlyMove={i === 0 && whiteCrit.isOnlyMove}
+                          onlyMoveLabel={whiteCrit.label}
                         />
                       ))}
                     </div>
