@@ -10,6 +10,7 @@ import { dueQuizItems, type QuizItem } from './positions';
 
 interface Props {
   onExit: () => void;
+  isNarrow?: boolean;
 }
 
 interface Verdict {
@@ -21,7 +22,7 @@ interface Verdict {
 
 const resultJp = (r: string) => (r === 'win' ? '勝ち' : r === 'lose' ? '負け' : '引き分け');
 
-export default function QuizPanel({ onExit }: Props) {
+export default function QuizPanel({ onExit, isNarrow = false }: Props) {
   const [store, setStore] = useState<SrsStore>(() => loadStore());
   // Snapshot the due queue once at session start so reviewing a card mid-session
   // doesn't reshuffle the remaining questions.
@@ -165,7 +166,7 @@ export default function QuizPanel({ onExit }: Props) {
           </button>
         </div>
       ) : current ? (
-        <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', flexDirection: isNarrow ? 'column' : 'row', gap: isNarrow ? 16 : 24, alignItems: isNarrow ? 'stretch' : 'flex-start' }}>
           {/* Board */}
           <div>
             <HandArea hand={current.state.hand.white} player="white" />
@@ -174,7 +175,7 @@ export default function QuizPanel({ onExit }: Props) {
               selected={selected}
               validMoves={validMoves}
               onCellClick={handleCellClick}
-              cellSize={64}
+              cellSize={isNarrow ? 76 : 64}
               selectedDrop={selectedDrop}
             />
             <HandArea

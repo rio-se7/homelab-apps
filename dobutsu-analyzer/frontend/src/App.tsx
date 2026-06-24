@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react';
 import Board from './components/Board';
 import HandArea from './components/HandArea';
 import EvalChart, { type EvalPoint } from './components/EvalChart';
@@ -87,23 +87,39 @@ export default function App() {
   const [simEvals, setSimEvals] = useState<{ black: MoveEval[]; white: MoveEval[] }>({ black: [], white: [] });
   const inSim = simLine.length > 0;
 
+  // スマホなど狭い画面では縦積みレイアウトに切り替える
+  const [isNarrow, setIsNarrow] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 760px)');
+    const handler = (e: MediaQueryListEvent) => setIsNarrow(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
   // 盤面コンテナのサイズに合わせてセルサイズを計算
   useEffect(() => {
     const el = boardAreaRef.current;
     if (!el) return;
     const calc = () => {
-      // 高さ: コンテナ高 - タイトル(30px) - HandArea×2(68px) - コントローラー(44px) - ラベル行(20px)
-      const fromH = Math.floor((el.clientHeight - 162) / 4);
       // 幅: ボード幅 = frame(8px) + labelCol(CELL*0.26) + 3*CELL ≈ CELL*3.26 + 8
       //   → CELL = (containerWidth - 8) / 3.3 (少し余裕を持つ)
       const fromW = Math.floor((el.clientWidth - 8) / 3.3);
+      if (isNarrow) {
+        // 縦積み時はコンテナ高が内容依存になるため幅基準で算出（端末幅に収める）
+        setCellSize(Math.max(56, Math.min(fromW, 96)));
+        return;
+      }
+      // 高さ: コンテナ高 - タイトル(30px) - HandArea×2(68px) - コントローラー(44px) - ラベル行(20px)
+      const fromH = Math.floor((el.clientHeight - 162) / 4);
       setCellSize(Math.max(60, Math.min(fromH, fromW, 260)));
     };
     const obs = new ResizeObserver(calc);
     obs.observe(el);
     calc();
     return () => obs.disconnect();
-  }, []);
+  }, [isNarrow]);
 
   // 初期評価 (URLからロードした棋譜は全局面を並行フェッチしてグラフを再構築)
   useEffect(() => {
@@ -436,18 +452,29 @@ export default function App() {
     : isAiThinking ? 'AI思考中...'
     : `${gameState.turn === 'black' ? '先手' : '後手'}の番`;
 
+  // レスポンシブ: 狭い画面は縦積み＋ページスクロール、広い画面は横2カラム＋ビューポート固定
+  const rootStyle: CSSProperties = isNarrow
+    ? { fontFamily: 'sans-serif', padding: 12, display: 'flex', flexDirection: 'column', gap: 16, background: '#faf6ee', minHeight: '100vh', boxSizing: 'border-box' }
+    : { fontFamily: 'sans-serif', padding: 24, display: 'flex', gap: 32, background: '#faf6ee', height: '100vh', boxSizing: 'border-box', overflow: 'hidden' };
+  const boardColStyle: CSSProperties = isNarrow
+    ? { width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 }
+    : { flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'flex-start', minWidth: 0 };
+  const panelStyle: CSSProperties = isNarrow
+    ? { width: '100%', minWidth: 0 }
+    : { flex: 2, minWidth: 0 };
+
   if (quizMode) {
     return (
-      <div style={{ fontFamily: 'sans-serif', padding: 24, background: '#faf6ee', height: '100vh', boxSizing: 'border-box', overflow: 'auto', display: 'flex' }}>
-        <QuizPanel onExit={() => setQuizMode(false)} />
+      <div style={{ fontFamily: 'sans-serif', padding: isNarrow ? 12 : 24, background: '#faf6ee', minHeight: '100vh', boxSizing: 'border-box', overflow: 'auto', display: 'flex' }}>
+        <QuizPanel onExit={() => setQuizMode(false)} isNarrow={isNarrow} />
       </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: 'sans-serif', padding: 24, display: 'flex', gap: 32, background: '#faf6ee', height: '100vh', boxSizing: 'border-box', overflow: 'hidden' }}>
-      {/* 盤面エリア — 1:2 比率 */}
-      <div ref={boardAreaRef} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'flex-start', minWidth: 0 }}>
+    <div style={rootStyle}>
+      {/* 盤面エリア — デスクトップは 1:2 比率 */}
+      <div ref={boardAreaRef} style={boardColStyle}>
         <h2 style={{ margin: '0 0 8px', color: '#3a2800' }}>どうぶつしょうぎ解析</h2>
 
         <HandArea
@@ -596,7 +623,7 @@ export default function App() {
 
       {/* 右カラム: 評価パネル or セットアップパネル or AI設定パネル */}
       {showAiSetup ? (
-        <div style={{ flex: 2, minWidth: 0, padding: '0 8px' }}>
+        <div style={{ ...panelStyle, padding: '0 8px' }}>
           <h3 style={{ margin: '0 0 16px', color: '#3a2800' }}>AI対局設定</h3>
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 13, fontWeight: 'bold', color: '#7a5a1a', marginBottom: 8 }}>あなたは</div>
@@ -640,7 +667,7 @@ export default function App() {
           </div>
         </div>
       ) : setupMode ? (
-        <div style={{ flex: 2, minWidth: 0, overflowY: 'auto' }}>
+        <div style={{ ...panelStyle, overflowY: 'auto' }}>
           <SetupPanel
             state={gameState} selectedPiece={setupPiece}
             onSelectPiece={setSetupPiece}
@@ -651,7 +678,7 @@ export default function App() {
           />
         </div>
       ) : (
-        <div style={{ flex: 2, minWidth: 0 }}>
+        <div style={panelStyle}>
           <h3 style={{ margin: '0 0 12px', color: '#3a2800' }}>完全解析評価</h3>
           <EvalChart history={evalHistory} highlightMove={reviewMode ? reviewIndex : undefined} />
 
@@ -706,7 +733,7 @@ export default function App() {
             </div>
           )}
           {!isLoadingSim && (
-          <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+          <div style={{ display: 'flex', flexDirection: isNarrow ? 'column' : 'row', gap: 12, marginTop: 12 }}>
             {(() => {
               const evalBase = inSim ? simLine[simStep] : reviewMode ? allPositions[reviewIndex] : gameState;
               const blackEvals = inSim ? simEvals.black : reviewMode ? reviewEvals.black : blackMoveEvals;
