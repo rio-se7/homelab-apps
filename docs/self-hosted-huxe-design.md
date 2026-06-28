@@ -1,9 +1,10 @@
-# セルフホスト版 Huxe アーキテクチャ設計 [v3]
+# セルフホスト版 Huxe アーキテクチャ設計 [v3.1]
 
 > **目的**: Huxe (2026/05/28 サービス終了) の体験をセルフホストで再現する
 > **方針**: クラウド推論一本化。台本生成はクラウドの無料枠 LLM（主=Gemini 2.5 Flash / fallback=Cloudflare Workers AI、OpenAI 互換・ルーター経由）。**有料プランは使わず、RTX5070（自宅GPU）は常時運用に使わない**。
 > **前提環境**: OCI Always Free k3s 稼働済み、Tailscale or NetBird メッシュ稼働済み。Windows desktop (RTX 5070 12GB) + WSL2 は任意リソース（当面は TTS の Applio 検証用途の候補のみ）。
 > **v3 変更点（最新・最優先）**: 推論をクラウド一本化 — 自宅GPUのローカル LLM（Qwen3.5-9B）と OCI-CPU-LLM フォールバックを**廃止**。可用性は Gemini→Cloudflare Workers AI の二段で担保。TTS は **Applio（RVC）を採用予定**だが GPU 要件が未確定のため Phase 0 で検証してから確定（それまでの無GPUベースラインは edge-tts）。LLM/TTS のエンドポイント抽象化（env 差替）は維持し、**既定をクラウドルーター（一旦 Cloudflare AI Gateway、将来 LiteLLM）に向ける**。実装の種は既存の `briefcast`（backend は openai_compat 化済み）。
+> **v3.1 変更点**: 話者ロスター（交代・タイプ別）、Brief/DeepCast の分離配信（別タイミング再生）、複数 DeepCast（予算次第）を追記。最小構成優先。
 > **v2 変更点**: 実物 Huxe 音声サンプル（22分48秒）の文字起こし分析を反映。連続構成・エピソード横断記憶・2話者役割分離・キュレーションレイヤーを新規/強化。
 
 ---
@@ -85,7 +86,7 @@
 │        日本語: Applio (RVC, Anchor/Co-host で別ボイス) ※要件検証 │
 │        無GPUベースライン: edge-tts (CPU・無料)                  │
 │        英語/高品質: クラウド TTS (任意)                         │
-│   → 1エピソード = 1音声ファイル (mp3/opus)                      │
+│   → Brief / DeepCast は別音声ファイル (連結は任意)             │
 └────────────────────────┬───────────────────────────────────────┘
                          │
             ┌────────────┴─────────────┐
@@ -105,6 +106,7 @@
 - RSS: 標準ポッドキャストアプリで購読・オフライン再生・再生位置記憶が無料で手に入る
 - Web UI: more/less ボタンによるフィードバックを取るために最小限必要（RSS だけだと再生/skip イベントが取れない）
 - DeepCast 単発生成もRSS に追加するだけで配信完了
+- Brief と DeepCast を別アイテムにすることで別タイミング再生・複数 DeepCast に自然に対応できる
 
 ### 2-2. なぜ「キュレーション」と「記憶」を独立レイヤーにしたか
 - v1 設計ではこの2つが「生成レイヤーの一部」として暗黙的だったが、Huxe 体験の核心はここ
@@ -227,10 +229,51 @@ TTS に渡す前の正規化パイプライン。**ここを雑にすると音�
 | 要素 | 推奨 |
 |------|------|
 | Podcast RSS 生成 | 自作スクリプト（RSS 2.0 + iTunes 拡張タグ）or 既存OSS |
+| 配信単位 | Daily Brief と DeepCast は別 RSS アイテムとして配信（別タイミング再生可、連結は任意） |
 | 音声ホスティング | ローカル静的配信 → 将来 MinIO / OCI Object Storage |
 | 外部アクセス | mesh (Tailscale/NetBird) 経由を基本、必要なら公開 |
 | 最小 Web UI | React + TypeScript + Vite (Rio の既存スタック) |
 | UI の役割 | エピソード再生 + more/less ボタン（フィードバック収集） |
+
+### 4-8. 話者構成（ロスター）と配信単位 ★v3.1
+
+**最小構成は2話者・単発・分離配信。ロスター/タイプ別アサインは Phase 3、複数DeepCastは Phase 2.5 以降。**
+
+#### A. 話者ロスター（Phase 3）
+
+| フィールド | 内容 |
+|-----------|------|
+| id | 話者識別子（例: `anchor_default`） |
+| applio_model | 使用する Applio/RVC モデルパス |
+| 表示名 | UI・ログ用の名前 |
+| デフォルトロール | `Anchor` or `Co-host` |
+
+- 最小構成: ロスター2件（Anchor 用・Co-host 用）、固定アサイン
+- 設定（ConfigMap）でロスターを増やし、episode_type 別にアサインを変更できる構造だけ用意（over-engineer しない）
+- 台本生成は `role`（Anchor/Co-host）で書き、TTS 段で episode_type のアサインを使って実 Applio モデルに解決（疎結合）
+
+**episode_type 別アサイン例**（ConfigMap）:
+
+| episode_type | role | speaker_id |
+|-------------|------|-----------|
+| daily_brief | Anchor | anchor_default |
+| daily_brief | Co-host | cohost_default |
+| deepcast | Anchor | anchor_default |
+| deepcast | Co-host | cohost_default |
+
+#### B. 配信単位（Phase 1/2 から既定）
+
+- Daily Brief と DeepCast は**別音声ファイル・別 RSS アイテム**として配信
+- ユーザーは Brief を朝、DeepCast を後でと**別タイミングで再生**できる
+- 同日付・相互リンクで関連付けつつ独立アイテム
+- 連結（続けて1本）は任意の付加機能。既定は分離
+
+#### C. 複数 DeepCast（Phase 2.5 以降）
+
+- 1日 N 本の DeepCast（既定 N=1）
+- N は設定 + 無料枠予算（neuron/req・レート・生成時間）で上限を決める
+- N>1 はキュレーション成熟後（Phase 2.5 以降）。各 DeepCast は独立アイテム
+- 最小構成は N=1
 
 ---
 
@@ -243,8 +286,8 @@ TTS に渡す前の正規化パイプライン。**ここを雑にすると音�
 | **0** | PoC: クラウド LLM で連続構成1本を生成（台本品質は briefcast で検証済み）+ **Applio の要件検証**（CPU/GPU・生成時間・品質）+ 読み上げ精度確認 |
 | **1** | DeepCast（単発生成）+ RSS 配信 + k3s デプロイ（generator は router 経由でクラウド LLM） |
 | **2** | Briefing + Transition + DeepCast 連続構成、エピソード横断記憶、毎朝 CronJob |
-| **2.5** | Personalized Feed（キュレーション + 選定理由言語化 + フィードバック導線） |
-| **3** | 音声品質強化: Applio 導入（Phase 0 検証で GO の場合）。Anchor/Co-host の別ボイス、前処理連携 |
+| **2.5** | Personalized Feed（キュレーション + 選定理由言語化 + フィードバック導線）。複数DeepCast（上位N件、既定N=1） |
+| **3** | 音声品質強化: Applio 導入（Phase 0 検証で GO の場合）。Anchor/Co-host の別ボイス、前処理連携。**話者ロスター定義/タイプ別アサイン設定** |
 | **3.5** | 運用整備（監視、Secret、バックアップ、辞書メンテ、失敗通知=Discord） |
 | **4** | Join 機能（リアルタイム音声割り込み）。優先度低 |
 
@@ -256,7 +299,7 @@ TTS に渡す前の正規化パイプライン。**ここを雑にすると音�
 
 ```yaml
 # docker-compose.yml — 概念図、動作確認済みではない
-# 本番は k3s manifest として展開。Tailscale/NetBird で自宅推論に到達
+# 本番は k3s manifest として展開。推論はクラウドルーター(Gemini/CF)へ egress
 services:
   ingest:        # OAuth tokens を Secret で受ける
     image: huxe-ingest:local
@@ -308,6 +351,13 @@ services:
 | LLM = ローカル Qwen3.5-9B（llama.cpp） | クラウド LLM を OpenAI 互換ルーター（Cloudflare AI Gateway→将来 LiteLLM）経由で |
 | TTS = Style-Bert-VITS2 / VOICEVOX | **Applio (RVC)** を採用予定（GPU 要件は Phase 0 で検証）。確定まで edge-tts |
 | 失敗通知 = ntfy | **ntfy 廃止**。既存の **Discord webhook**（Uptime Kuma と共用）に置換 |
+
+### v3.1 での追加（話者・配信単位）
+| v2/v3 の前提 | v3.1 での扱い |
+|-----------|------------|
+| 「1エピソード=1音声ファイルに結合」（v2 で別エピソード→連続構成に訂正） | **再分離**: 配信は Brief / DeepCast を別アイテムに（別タイミング再生可）。連結した1本は任意。連続性は相互リンク・トランジション予告で担保 |
+| 話者は固定2 | 既定2のまま。Applio **ロスター**でメンバー交代・エピソードタイプ別アサイン可（Phase 3） |
+| DeepCast は1日1本 | 1日 **N 本**（既定 N=1、無料枠予算で上限）。複数化は Phase 2.5 以降 |
 
 ---
 

@@ -1,25 +1,30 @@
-# セルフホスト版 Huxe — homelab 構築タスクリスト (Claude Code 用) [v3]
+# セルフホスト版 Huxe — homelab 構築タスクリスト (Claude Code 用) [v3.1]
 
 > **前提**: OCI k3s 稼働済み / Tailscale or NetBird メッシュ稼働済み。自宅 WSL2 + RTX 5070 は任意（Applio 検証時のみ候補）。
 > **構成**: **クラウド推論一本化**。台本生成 LLM = 主 Gemini 2.5 Flash / fallback Cloudflare Workers AI（OpenAI 互換・ルーター経由）。TTS = Applio（要件検証後）/ それまで edge-tts。有料プラン不使用・GPU 常時運用なし。
 > **使い方**: 各タスクを Claude Code に1つずつ渡す想定。`[ ]` を消化していく。
 > **注意**: モデル名・APIフラグ・k8s API バージョン等は Claude Code 側で公式ドキュメントを確認させること（このリストは推測値を含む）。
 > **v3変更点（最優先）**: 推論をクラウド一本化（ローカル Qwen3.5-9B / OCI-CPU-LLM フォールバックを廃止）。TTS は Applio 採用予定（GPU 要件は Phase 0 で検証、確定まで edge-tts）。失敗通知は ntfy 廃止 → 既存 Discord webhook へ。実装の種は既存 `briefcast`（summarizer は openai_compat 化済み）。
+> **v3.1 変更点**: 話者ロスター（交代・タイプ別）、Brief/DeepCast の分離配信（別タイミング再生）、複数 DeepCast（予算次第）を追記。最小構成優先。
 > **v2変更点**: 実物 Huxe 音声サンプル（22分48秒）の文字起こし分析を反映。「Briefing → DeepCast 連続構成」「エピソード横断記憶」「2話者の役割分離」「数値・固有名詞前処理」を新規/強化。
 
 ---
 
 ## 設計の前提（全フェーズ共通）
 
-- **配信単位は1本のエピソード = Briefing + Transition + DeepCast の連続構成**（Huxe実物の構造）
-  - 尺の目安: 全体 20-25分（Briefing 10分 + 短いトランジション + DeepCast 10-12分）
-  - Briefing 単独 / DeepCast 単独の生成もできるが、本流は連続構成
+- **エピソードの体験は Briefing + Transition + DeepCast の連続体験**（Huxe実物の構造）。ただし**配信は Brief と DeepCast を別アイテムに分離**するのが既定（連結した1本は任意。下記「配信単位」参照）
+  - 尺の目安: Briefing 8-12分 / DeepCast 10-12分（各々独立アイテム）
+  - 「繋がり」は相互リンク・同日付・トランジション台本での予告で演出し、再生は別タイミング可
 - **2話者の役割分離**: Anchor（情報提供主体）+ Co-host（相槌・質問・整理役）。プロンプトで明確に分離
 - **生成レイヤーは推論バックエンドを抽象化**: LLM/TTS のエンドポイントを環境変数で差し替え可能にし、同一コードで異なるバックエンドに対応（既存 briefcast の openai_compat が先取り）
 - **OCI k3s に常駐**: ingest / generator / feed / memory / scheduler
 - **推論先**: クラウドルーター（一旦 Cloudflare AI Gateway、将来 LiteLLM）経由で 主=Gemini 2.5 Flash / fallback=Cloudflare Workers AI。**自宅 GPU 推論・OCI CPU 推論は使わない**
 - **失敗通知**: 既存の **Discord webhook**（Uptime Kuma と共用）。ntfy は廃止
 - **言語規約**: コード内コメント・README は英語、設計メモは日本語
+- **話者**: 既定2（Anchor+Co-host）。Applio ロスターでメンバー交代/エピソードタイプ別アサイン可（Phase 3）
+- **配信単位**: Daily Brief と DeepCast は別アイテムで配信＝別タイミング再生可（連結は任意）。既定は分離
+- **DeepCast 本数**: 1日 N 本（既定 N=1、無料枠予算で上限）。複数化は Phase 2.5 以降
+- **段階導入**: 最小構成（2固定話者・単発・分離配信）から段階導入
 
 ---
 
@@ -38,7 +43,7 @@
   - Huxe実物のトランジションを参考: 「今日のブリーフはここまで」→ 引き止め → DeepCast予告 → 選定理由の言語化
   - SYSTEM_PROMPT に「プレーンテキストのみ／本文外を創作しない（反ハルシネーション）」を含める（briefcast で実装済みの方針を流用）
 - [ ] **数値・固有名詞の読み上げ精度確認**: 「4兆9500億ドル」「49%」「TSMC」「ドラゴンズ」「JPBA」等を含むサンプル台本で実際に音声生成し、誤読の有無を確認。誤読パターンを `docs/tts-pronunciation-issues.md` に記録
-- [ ] 台本 JSON → TTS（Applio or edge-tts）で話者ごとに音声生成 → 1本の mp3 に結合するスクリプト（Python）
+- [ ] 台本 JSON → TTS（Applio or edge-tts）で話者ごとに音声生成 → 音声ファイルに結合するスクリプト（Python）。PoC は1本で評価可、本番は Brief/DeepCast を別アイテム出力
   - トランジション部分に短い無音 or 効果音/音楽を挿入する余地を残す
 - [ ] PoC 成果物（生成した mp3 1本、目安20分前後）を手元で再生して品質評価。所感を `docs/phase0-eval.md` に記録
   - 評価軸: 自然さ / 2話者の対話感 / 数値・固有名詞の正確さ / トランジションの自然さ / 全体の聞き疲れしなさ
@@ -71,6 +76,7 @@
 
 ### 1-B. 配信レイヤー
 - [ ] `feed` サービス: 生成済み音声を RSS 2.0 (+ iTunes拡張タグ) で配信。新規エピソードを feed に追加するロジック
+- [ ] **DeepCast を独立した RSS アイテムとして出力**（Brief とは別音声ファイル・別アイテム）。同日付・相互リンクで関連付け
 - [ ] 音声ファイルの静的配信（初期はローカル volume、後で MinIO/OCI Object Storage）
 - [ ] 標準ポッドキャストアプリ（Pocket Casts 等）で購読できるか実機確認
 
@@ -121,7 +127,7 @@
   - ⚠️ ここがHuxe体験の核心。選定理由が無いと「ただの次のトピック」になり刺さらない
 - [ ] **音楽ブレイクの挿入余地**: トランジション後に5-10秒の短い音楽orジングルを入れる仕組み（音源は別途用意 or 無音でも可）
 - [ ] **DeepCast パート**: Phase 1 の DeepCast 生成を流用。テーマは Phase 2.5 で選定したものを受け取る
-- [ ] **Briefing と DeepCast を1ファイルに結合**: 1エピソード = 1音声ファイルとして出力
+- [ ] **Briefing と DeepCast を「別音声ファイル・別 RSS アイテム」として出力**（別タイミング再生可。連結した1本は任意の付加機能）。相互リンク/同日付で関連付け
 
 ### 2-D. エピソード横断記憶（新規・重要）
 > Huxe実物の「さっき夕方にも一緒にニュース見たばかり」「あの AIファーストのクリックアップの話、頭の片隅に残りながら仕事してたんじゃないか」のような **過去言及** を再現するための仕組み。当初設計に完全欠落していた。
@@ -172,6 +178,7 @@
 - [ ] **DeepCastテーマ選定**: 再ランキング結果から本日のDeepCastテーマを1つ選定。**選定理由の自然言語化** を出力に含める（Phase 2-C のトランジション台本で使う）
   - 例: テーマ=「X JAPAN とビジュアル系の起源」 / 理由=「亮介が好きな J-Rock のルーツ掘り、最近の VTuber ライブ演出にも繋がる」
 - [ ] **Briefingスポーツ枠選定**: 興味直結ソース（中日ドラゴンズ公式、JPBA 等）を毎日確実に拾うパス。embedding ではなく明示的なソース指定でOK
+- [ ] **DeepCast テーマを上位 N 件選定**（既定 N=1、無料枠予算で上限）。N>1 は各々独立アイテムとして配信。複数化は Phase 2.5 成熟後
 
 ### 2.5-D. フィードバック導線（最小UI）
 - [ ] **配信方式の補強**: podcast RSS のみだと再生/skip イベントが取れない。最小の Web UI（React/TS/Vite, 既存スタック）を用意し、各エピソードに「もっとこういう話を(more like this)」「興味なし(less)」ボタン
@@ -196,6 +203,9 @@
 - [ ] 数値・固有名詞の前処理は維持（Applio でも誤読は起きうる）
 - [ ] 失敗時は edge-tts に自動フォールバックする経路を用意（声は落ちるが配信は止めない）
 - [ ] edge-tts と Applio の品質・所要時間を比較記録 `docs/tts-comparison.md`
+- [ ] **ボイスロスター定義**（`speakers`: id / applio_model / 表示名 / デフォルトロール）を ConfigMap 化。最小構成はロスター2件（Anchor 用・Co-host 用）
+- [ ] episode_type（daily_brief / deepcast）ごとの role→speaker_id アサインを設定化。メンバー交代・タイプ別メンバーを可能に
+- [ ] 台本の role（Anchor/Co-host）を TTS 段でアサイン解決して Applio モデルに割り当て（台本生成と TTS を疎結合に保つ）
 
 ---
 
