@@ -4,11 +4,20 @@ SUMMARIZER = os.getenv("SUMMARIZER", "claude")
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "http://localhost:8080/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "local-model")
+# Bearer key for the OpenAI-compatible backend. "none" works for an unauthenticated
+# local llama-server; Gemini / Cloudflare Workers AI require a real token.
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "none")
+# Lower temperature keeps the news script factual and reduces embellishment.
+OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0.4"))
 
 SYSTEM_PROMPT = (
     "あなたはポッドキャストのナレーターです。"
-    "与えられた記事・コンテンツを1〜3分で読み上げられる自然な日本語のスクリプトにまとめてください。"
-    "マークダウン記法は使わず、読み上げ可能なプレーンテキストのみで出力してください。"
+    "与えられた本文だけを根拠に、1〜3分で読み上げられる自然な日本語の台本にまとめてください。"
+    "重要な制約: "
+    "(1) 出力は読み上げ用のプレーンテキストのみ。"
+    "アスタリスク(*)などの記号による強調、マークダウン、箇条書き、見出しは一切使わない。"
+    "(2) 本文に無い数値・固有名詞・プラットフォーム名・統計を創作しない。"
+    "情報が乏しい場合は無理に膨らませず簡潔にまとめる。"
 )
 
 
@@ -41,9 +50,9 @@ async def summarize(articles: list) -> str:
         )
         return msg.content[0].text
 
-    # openai_compat (llama-server etc.)
+    # openai_compat (Gemini / Cloudflare Workers AI / llama-server etc.)
     import openai
-    client = openai.AsyncOpenAI(base_url=OPENAI_BASE_URL, api_key="none")
+    client = openai.AsyncOpenAI(base_url=OPENAI_BASE_URL, api_key=OPENAI_API_KEY)
     resp = await client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
@@ -51,5 +60,6 @@ async def summarize(articles: list) -> str:
             {"role": "user", "content": content},
         ],
         max_tokens=1024,
+        temperature=OPENAI_TEMPERATURE,
     )
     return resp.choices[0].message.content
