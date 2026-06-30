@@ -6,7 +6,12 @@ import { legalMoves, encodeForApi, apiMoveToKifu } from '../engine/board';
 import { fetchMoves, type MoveEval } from '../api/client';
 import { matchPlayed } from '../analysis/blunderReport';
 import { loadStore, saveStore, review, stats, type SrsStore } from './srs';
-import { dueQuizItems, type QuizItem } from './positions';
+import { dueQuizItems, allQuizItems, type QuizItem } from './positions';
+
+type QuizMode = 'due' | 'all';
+
+const buildQueue = (store: SrsStore, mode: QuizMode): QuizItem[] =>
+  mode === 'all' ? allQuizItems(store) : dueQuizItems(store);
 
 interface Props {
   onExit: () => void;
@@ -24,7 +29,9 @@ const resultJp = (r: string) => (r === 'win' ? '勝ち' : r === 'lose' ? '負け
 
 export default function QuizPanel({ onExit, isNarrow = false }: Props) {
   const [store, setStore] = useState<SrsStore>(() => loadStore());
-  // Snapshot the due queue once at session start so reviewing a card mid-session
+  // 'due' = 出題待ちのみ（SRS本来の間隔反復）, 'all' = 登録局面を全部回す（総復習）
+  const [mode, setMode] = useState<QuizMode>('due');
+  // Snapshot the queue once at session start so reviewing a card mid-session
   // doesn't reshuffle the remaining questions.
   const [queue, setQueue] = useState<QuizItem[]>(() => dueQuizItems(loadStore()));
   const [qIndex, setQIndex] = useState(0);
@@ -121,23 +128,41 @@ export default function QuizPanel({ onExit, isNarrow = false }: Props) {
     setQIndex(i => i + 1);
   }, []);
 
-  const restart = useCallback(() => {
+  const restart = useCallback((nextMode: QuizMode = mode) => {
     const fresh = loadStore();
     resetQuestionState();
     setStore(fresh);
-    setQueue(dueQuizItems(fresh));
+    setMode(nextMode);
+    setQueue(buildQueue(fresh, nextMode));
     setQIndex(0);
     setSession({ answered: 0, correct: 0, streak: 0 });
-  }, []);
+  }, [mode]);
+
+  const switchMode = useCallback((next: QuizMode) => {
+    if (next !== mode) restart(next);
+  }, [mode, restart]);
 
   const sessionRate = session.answered > 0 ? Math.round((session.correct / session.answered) * 100) : 0;
   const done = qIndex >= queue.length;
 
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0, color: '#3a2800' }}>クイズモード（予想当て）</h3>
-        <button onClick={onExit} style={{ padding: '4px 12px', fontSize: 12, marginLeft: 'auto' }}>終了</button>
+        <div style={{ display: 'flex', gap: 0, marginLeft: 'auto', border: '1px solid #d8c8a0', borderRadius: 6, overflow: 'hidden' }}>
+          {([['due', '出題待ち'], ['all', '全表示']] as const).map(([m, label]) => (
+            <button
+              key={m}
+              onClick={() => switchMode(m)}
+              style={{
+                padding: '4px 12px', fontSize: 12, border: 'none', cursor: 'pointer',
+                background: mode === m ? '#5a8040' : '#fff',
+                color: mode === m ? '#fff' : '#5a4a20',
+              }}
+            >{label}</button>
+          ))}
+        </div>
+        <button onClick={onExit} style={{ padding: '4px 12px', fontSize: 12 }}>終了</button>
       </div>
 
       {/* Stats */}
@@ -153,16 +178,21 @@ export default function QuizPanel({ onExit, isNarrow = false }: Props) {
 
       {queue.length === 0 ? (
         <div style={{ fontSize: 14, color: '#7a5a1a', lineHeight: 1.7, background: '#fff', borderRadius: 6, padding: 16 }}>
-          出題できる局面がありません。<br />
-          対局後に <strong>感想戦 →「反省点を解析」</strong> を実行すると、ブランダー局面がクイズに追加されます。
+          {mode === 'due' && storeStats.total > 0 ? (
+            <>出題待ちの局面はありません（全 {storeStats.total} 問は復習間隔の待機中）。<br />
+            今すぐ全部解き直すなら上の <strong>「全表示」</strong> に切り替えてください。</>
+          ) : (
+            <>出題できる局面がありません。<br />
+            対局後に <strong>感想戦 →「反省点を解析」</strong> を実行すると、ブランダー局面がクイズに追加されます。</>
+          )}
         </div>
       ) : done ? (
         <div style={{ fontSize: 15, color: '#3a2800', background: '#fff', borderRadius: 6, padding: 20, textAlign: 'center' }}>
           <div style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 8 }}>セッション終了</div>
           <div>正解 {session.correct} / {session.answered}（{sessionRate}%）</div>
-          <button onClick={restart} style={{ marginTop: 16, padding: '8px 20px', fontSize: 14,
+          <button onClick={() => restart()} style={{ marginTop: 16, padding: '8px 20px', fontSize: 14,
             background: '#5a8040', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
-            もう一度（再出題分を取得）
+            {mode === 'all' ? 'もう一度（全局面）' : 'もう一度（再出題分を取得）'}
           </button>
         </div>
       ) : current ? (
