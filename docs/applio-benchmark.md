@@ -19,6 +19,50 @@
 
 ---
 
+## 実行サンプル（CLI / 非対話）
+
+> 現行版 Applio（IAHispano/Applio）の `core.py tts` は「text → edge-tts（ベース音声）→ RVC 変換」を1コマンドで行う。声の個性は RVC モデル（`--pth_path`）由来、プロソディは edge-tts（`--tts_voice`）由来。
+> ⚠️ GPU/CPU 切替フラグは無い → `CUDA_VISIBLE_DEVICES` で制御（空=CPU、既定=GPU）。引数名は版で違うので `python core.py tts --help` で必ず確認。
+
+```bash
+APPLIO=~/Applio
+ANCHOR_PTH=$APPLIO/logs/Anchor/Anchor.pth   # 自分の RVC モデルに合わせる
+ANCHOR_IDX=$APPLIO/logs/Anchor/Anchor.index
+VOICE=ja-JP-NanamiNeural                     # ベース TTS（edge-tts ロケール）
+RATE=0                                        # 読み上げ速度 -100..100（速くするなら +10 等。本番で使う値に）
+TEXT="おはようございます。今日はRust 1.90のリリースと、TSMCの投資ニュースをお届けします。再ビルド時間は49パーセント短縮、大規模プロジェクトの開発効率に直結する重要な改善です。"
+OUT=/tmp/bench; mkdir -p $OUT
+cd $APPLIO && source .venv/bin/activate       # 環境の有効化は導入方法に合わせる
+
+# GPU（別シェルで `nvidia-smi -l 1` で VRAM 監視）
+/usr/bin/time -v python core.py tts --tts_text "$TEXT" --tts_voice $VOICE \
+  --pth_path "$ANCHOR_PTH" --index_path "$ANCHOR_IDX" \
+  --output_tts_path $OUT/base.wav --output_rvc_path $OUT/anchor_gpu.wav \
+  --tts_rate $RATE --f0_method rmvpe --export_format WAV
+
+# CPU（GPU 無効化）
+CUDA_VISIBLE_DEVICES="" /usr/bin/time -v python core.py tts --tts_text "$TEXT" --tts_voice $VOICE \
+  --pth_path "$ANCHOR_PTH" --index_path "$ANCHOR_IDX" \
+  --output_tts_path $OUT/base.wav --output_rvc_path $OUT/anchor_cpu.wav \
+  --tts_rate $RATE --f0_method rmvpe --export_format WAV
+
+# edge-tts ベースライン（RVC 無し・CPU）。edge-tts の速度は +N%/-N% 形式なので $RATE に合わせる
+/usr/bin/time -v edge-tts --voice $VOICE --rate "+0%" --text "$TEXT" --write-media $OUT/edge.mp3
+
+# 音声長と RTF（RTF = 実時間 ÷ 音声長、小さいほど速い）
+for f in $OUT/anchor_gpu.wav $OUT/anchor_cpu.wav $OUT/edge.mp3; do
+  dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$f")
+  echo "$f : ${dur}s"
+done
+
+# Co-host 用 RVC モデル（別 .pth）でも同様に流し、声の差別化を確認
+```
+
+> 計測: `/usr/bin/time -v` の "Elapsed (wall clock) time" が実時間、VRAM は `nvidia-smi`。20分音声は (実時間 ÷ 音声長) × 1200秒 で外挿し、下表に記入。
+> 前処理の効果確認: 同じ文を `backend/text_preprocess.preprocess()` に通した版でも生成し、数値・固有名詞の読みを比較。
+
+---
+
 ## 1. セットアップ可否
 
 - [ ] Applio をインストール・起動できた（手順・ハマりどころを記録）
@@ -79,6 +123,18 @@
 
 ## 5. 決定後の反映先
 
+- **チューニング運用（重要）**: 良い設定値は **UI で探索 → その値を CLI フラグに焼き込む**（`index_rate` / `protect` / `f0_method` / `tts_rate` / `clean_strength` 等）。UI は探索用、CLI は再現可能な自動化用。**確定値は generator の TTS 設定（env / ConfigMap）にメモ**して CronJob から再現
 - 採用方針 → `huxe-homelab-tasks.md` Phase 3（Applio 導入）/ `self-hosted-huxe-design.md` 4-5・4-8 に反映
 - 実行場所（RTX5070 で TTS のみ等）→ Phase 3「Applio の配置方式決定」タスク
 - フォールバック（Applio→edge-tts）→ generator の TTS クライアントに実装
+- 確定したパラメータ一式（pth/index パス、pitch、index_rate、protect、f0_method、tts_rate 等）を記録:
+
+| パラメータ | Anchor | Co-host |
+|-----------|--------|---------|
+| pth / index | | |
+| pitch | | |
+| index_rate | | |
+| protect | | |
+| f0_method | | |
+| tts_rate | | |
+| clean_audio / strength | | |

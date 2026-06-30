@@ -28,6 +28,24 @@
 
 ---
 
+## 実装状況（2026-06-29 時点）
+
+実装母体は既存の `homelab-apps/briefcast`（briefcast を huxe に育てる方針）。
+
+**完了:**
+- クラウド LLM 疎通（Gemini 主 / CF fallback、OCI から OpenAI 互換で確認）
+- 連続構成の台本生成 PoC: `briefcast/poc/continuous_script.py`
+- 台本生成（Brief / DeepCast を別 LLM コールで分割、2話者 anchor/cohost）: `briefcast/backend/script_generator.py`
+- テキスト前処理（数値かな化 + アクロニム自動読み + 辞書）: `briefcast/backend/text_preprocess.py`
+- RSS feed 雛形（Brief/DeepCast 別アイテム + iTunes タグ）: `briefcast/backend/feed.py`
+
+**進行中 / 未:**
+- Applio 要件検証（実機ベンチ、`docs/applio-benchmark.md`）← TTS 採否の判断待ち
+- TTS クライアント配線（Applio / edge-tts）、台本→音声→Episode→feed の glue
+- FastAPI 化 / k3s デプロイ / 静的音声配信 / ingest（Phase 2 以降）
+
+---
+
 ## Phase 0: PoC（インフラ前、最小検証）
 
 > 目的: 「台本生成→音声化」が成立するか、日本語の自然さ、**Applio の要件**を実測で確かめる。
@@ -35,14 +53,14 @@
 > **v3**: 推論はクラウド（Gemini/CF）。GPU/VRAM 実測の主対象は LLM ではなく **Applio (RVC)**。
 
 - [ ] リポジトリ初期化（monorepo or マルチパッケージ構成を決める）。`README.md`, `.gitignore`, ライセンス方針を記載
-- [ ] **クラウド LLM 疎通**: Gemini（主）/ Cloudflare Workers AI（fallback）の OpenAI 互換エンドポイントで簡単な生成が通ることを確認（briefcast で確認済み・流用可）
+- [x] **クラウド LLM 疎通**: Gemini（主）/ Cloudflare Workers AI（fallback）の OpenAI 互換エンドポイントで簡単な生成が通ることを確認（briefcast で確認済み・流用可）
 - [ ] **Applio セットアップ + 要件検証**: Applio を起動し日本語サンプル音声を1本生成。**CPU/GPU 要件・VRAM・生成速度**を実測し `docs/applio-benchmark.md` に記録。RTX5070 必須か / CPU で許容できるか / 無GPU の edge-tts で十分かを判断
 - [ ] **2話者分のボイス確保**: Anchor 用 / Co-host 用で**別ボイスモデル**。声質が明確に違うことを確認。RVC ボイスモデルの権利・配布条件も確認
-- [ ] **台本生成プロンプトの試作（連続構成版）**: 固定のダミーデータ（メール風 + 予定 + ニュース3本）から「Briefing → Transition → DeepCast」の連続台本を**クラウド LLM**で生成するプロンプトを作る
+- [x] **台本生成プロンプトの試作（連続構成版）**: 固定のダミーデータ（メール風 + 予定 + ニュース3本）から「Briefing → Transition → DeepCast」の連続台本を**クラウド LLM**で生成するプロンプトを作る
   - 各セクションの構造を JSON で固定（speaker / text / section タグ）
   - Huxe実物のトランジションを参考: 「今日のブリーフはここまで」→ 引き止め → DeepCast予告 → 選定理由の言語化
   - SYSTEM_PROMPT に「プレーンテキストのみ／本文外を創作しない（反ハルシネーション）」を含める（briefcast で実装済みの方針を流用）
-- [ ] **数値・固有名詞の読み上げ精度確認**: 「4兆9500億ドル」「49%」「TSMC」「ドラゴンズ」「JPBA」等を含むサンプル台本で実際に音声生成し、誤読の有無を確認。誤読パターンを `docs/tts-pronunciation-issues.md` に記録
+- [ ] **数値・固有名詞の読み上げ精度確認**: 「4兆9500億ドル」「49%」「TSMC」「NASA」「GDP」等を含むサンプル台本で実際に音声生成し、誤読の有無を確認。誤読パターンを `docs/tts-pronunciation-issues.md` に記録
 - [ ] 台本 JSON → TTS（Applio or edge-tts）で話者ごとに音声生成 → 音声ファイルに結合するスクリプト（Python）。PoC は1本で評価可、本番は Brief/DeepCast を別アイテム出力
   - トランジション部分に短い無音 or 効果音/音楽を挿入する余地を残す
 - [ ] PoC 成果物（生成した mp3 1本、目安20分前後）を手元で再生して品質評価。所感を `docs/phase0-eval.md` に記録
@@ -60,23 +78,23 @@
 ### 1-A. 生成サービス（推論抽象化を含む）
 - [ ] `generator` サービスの雛形作成（Python/FastAPI 推奨。Rust移行は後で検討）
 - [ ] **推論バックエンド抽象化**: `LLM_ENDPOINT` / `LLM_API_KEY` / `TTS_ENDPOINT` を環境変数化。バックエンドを差し替え可能なインターフェース（既存 briefcast の openai_compat を流用）
-- [ ] LLM クライアント実装（OpenAI 互換 API をルーター経由で叩く。既定=Gemini、fallback=CF）
+- [x] LLM クライアント実装（OpenAI 互換 API をルーター経由で叩く。既定=Gemini、fallback=CF）
 - [ ] TTS クライアント実装（Applio の API を叩く。確定まで edge-tts）。2話者対応（speakerタグでボイス切替）
-- [ ] **台本生成プロンプトの本番化**: Anchor / Co-host の役割分離を明示
+- [x] **台本生成プロンプトの本番化**: Anchor / Co-host の役割分離を明示
   - Anchor: 情報を出す主体。事実と数値を担当
   - Co-host: 相槌・確認・素朴な質問・整理。「うん」「なるほど」「え、待って」のような自然な反応マーカー
   - 一方的にならない緩急、4-8話者交代/分の目安
-- [ ] **テキスト前処理パイプライン**: TTSに渡す前に以下を行う
+- [x] **テキスト前処理パイプライン**: TTSに渡す前に以下を行う
   - 数値の読み仮名化（「4兆9500億ドル」「49%」「2026年」等）
-  - 固有名詞辞書（ドラゴンズ、JPBA、TSMC、X JAPAN等。Rio個人の興味領域を初期登録）
+  - 固有名詞辞書（アクロニムは自動で字名読み。特殊読み・個人/ドメイン語は外部辞書 `BRIEFCAST_DICT_PATH` で投入。public repo には個人語をハードコードしない）
   - 略語の正規化（NBA、NPB、AI 等）
   - ⚠️ ここを雑に作ると音声の信頼性が一気に落ちる。Huxe実物でも誤読が出る箇所
 - [ ] エンドポイント: `POST /deepcast {topic, length, style}` → 台本生成 → 前処理 → 音声生成 → 音声ファイルパス返却
 - [ ] エラーハンドリング（推論先がダウン時のフォールバック判定の土台）
 
 ### 1-B. 配信レイヤー
-- [ ] `feed` サービス: 生成済み音声を RSS 2.0 (+ iTunes拡張タグ) で配信。新規エピソードを feed に追加するロジック
-- [ ] **DeepCast を独立した RSS アイテムとして出力**（Brief とは別音声ファイル・別アイテム）。同日付・相互リンクで関連付け
+- [x] `feed` サービス: 生成済み音声を RSS 2.0 (+ iTunes拡張タグ) で配信。新規エピソードを feed に追加するロジック
+- [x] **DeepCast を独立した RSS アイテムとして出力**（Brief とは別音声ファイル・別アイテム）。同日付・相互リンクで関連付け
 - [ ] 音声ファイルの静的配信（初期はローカル volume、後で MinIO/OCI Object Storage）
 - [ ] 標準ポッドキャストアプリ（Pocket Casts 等）で購読できるか実機確認
 
