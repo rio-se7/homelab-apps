@@ -1,0 +1,5 @@
+{
+  "_comment": "Sample reading dictionary. Copy to a private file (e.g. dict.json, git-ignored) and set BRIEFCAST_DICT_PATH to it. Put domain/personal terms (team names, band names, niche acronyms with special readings) THERE, not in the public repo. term -> kana reading.",
+  "Kubernetes": "クバネティス",
+  "PostgreSQL": "ポストグレスキューエル"
+}
