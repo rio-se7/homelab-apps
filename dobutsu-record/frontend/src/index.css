@@ -1,0 +1,66 @@
+:root {
+  font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  color-scheme: light;
+
+  /* どうぶつしょうぎ配色 (dobutsu-analyzer の盤面パレットに準拠) */
+  --bg: #f3eddc;          /* 温かいクリームの背景 */
+  --panel: #fffef8;       /* カード面 (暖色オフホワイト) */
+  --panel-2: #f4eedd;     /* 二次面・入力 (暖色クリーム) */
+  --border: #ddd2ba;      /* 暖色ボーダー */
+  --border-strong: #cabd9c;
+  --text: #3b3220;        /* 濃い暖色ブラウン */
+  --muted: #8a7c62;
+  --heading: #2a4018;     /* 濃緑 (盤のラベル色) */
+
+  --accent: #7aaa58;      /* 盤の枠と同系の明るい緑 */
+  --accent-strong: #5f8a3f;
+  --accent-soft: #eaf3dc; /* 通常マス系の淡緑 */
+
+  --gold: #ffcf33;        /* ハイライト (選択マス) */
+  --win: #4a8a2e;         /* 勝ちの緑 */
+  --danger: #c82000;      /* ライオンの赤 */
+
+  /* 駒の陣営色 */
+  --black-piece: #b47e1c; /* 先手: 暖色ゴールドブラウン */
+  --black-soft: #f8f0e0;  /* 先手陣クリーム */
+  --white-piece: #5578ad; /* 後手: 空色ブルー */
+  --white-soft: #e4f0f8;  /* 後手陣スカイ */
+
+  color: var(--text);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+select,
+input {
+  font: inherit;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+select:focus,
+input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
