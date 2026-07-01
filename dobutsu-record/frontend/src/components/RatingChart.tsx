@@ -102,11 +102,16 @@ export default function RatingChart({ members, matches, standings }: Props) {
         <div className="chart-wrap">
           <ResponsiveContainer width="100%" height={360}>
             <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-              <XAxis dataKey="label" stroke="#888" tick={{ fontSize: 11 }} />
-              <YAxis stroke="#888" domain={['auto', 'auto']} tick={{ fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#ddd2ba" />
+              <XAxis dataKey="label" stroke="#8a7c62" tick={{ fontSize: 11 }} />
+              <YAxis stroke="#8a7c62" domain={['auto', 'auto']} tick={{ fontSize: 11 }} />
               <Tooltip
-                contentStyle={{ background: '#1e1e2a', border: '1px solid #444' }}
+                contentStyle={{
+                  background: '#fffef8',
+                  border: '1px solid #ddd2ba',
+                  borderRadius: 8,
+                  color: '#3b3220',
+                }}
               />
               <Legend />
               {ranked.map((s) => (

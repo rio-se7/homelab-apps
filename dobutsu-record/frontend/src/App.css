@@ -14,6 +14,8 @@
 .app-header h1 {
   font-size: 1.4rem;
   margin: 0;
+  color: var(--heading);
+  letter-spacing: 0.5px;
 }
 
 .subtitle {
@@ -38,8 +40,13 @@
   border-bottom: 2px solid transparent;
 }
 
-.tab.active {
+.tab:hover {
   color: var(--text);
+}
+
+.tab.active {
+  color: var(--heading);
+  font-weight: 700;
   border-bottom-color: var(--accent);
 }
 
@@ -49,7 +56,7 @@
 }
 
 .banner.error {
-  color: #ff8080;
+  color: var(--danger);
 }
 
 .card {
@@ -57,11 +64,14 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 18px;
+  box-shadow: rgba(90, 70, 20, 0.08) 0 6px 16px -6px;
 }
 
 .section-title {
   font-size: 1.05rem;
   margin: 4px 0 12px;
+  color: var(--heading);
+  font-weight: 700;
 }
 
 .hint {
@@ -157,10 +167,19 @@
   border-color: var(--white-piece);
 }
 
+.win-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
 .draw-btn {
   background: var(--panel-2);
   color: var(--text);
+  border-color: var(--border-strong);
   flex: 0.6;
+}
+
+.draw-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
 }
 
 .win-btn:disabled,
@@ -197,23 +216,24 @@ table.leaderboard {
 
 .matrix .row-head,
 .matrix .col-head {
-  background: var(--panel-2);
-  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--heading);
+  font-weight: 700;
 }
 
 .matrix .corner {
-  background: var(--panel-2);
+  background: var(--accent-soft);
 }
 
 .matrix .diag {
-  background: #2a2a36;
+  background: var(--border);
   color: var(--muted);
 }
 
 .matrix .total-head,
 .matrix .total-cell {
-  background: #20202c;
-  font-weight: 600;
+  background: var(--black-soft);
+  font-weight: 700;
 }
 
 .draws {
@@ -228,6 +248,16 @@ table.leaderboard {
   border-bottom: 1px solid var(--border);
   padding: 8px 10px;
   text-align: left;
+}
+
+.leaderboard thead th {
+  background: var(--accent-soft);
+  color: var(--heading);
+  font-weight: 700;
+}
+
+.leaderboard tbody tr:nth-child(odd) {
+  background: rgba(122, 170, 88, 0.05);
 }
 
 .leaderboard .num {
@@ -292,7 +322,7 @@ table.leaderboard {
 
 .history-item .p.winner {
   font-weight: 700;
-  color: #7ee08a;
+  color: var(--win);
 }
 
 .history-item .vs {
@@ -326,7 +356,7 @@ table.leaderboard {
 }
 
 .history-item .del-btn:hover {
-  color: #ff8080;
+  color: var(--danger);
 }
 
 .edit-panel {
@@ -334,9 +364,10 @@ table.leaderboard {
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
-  padding: 10px 4px 12px;
+  padding: 10px 12px 12px;
   border-bottom: 1px solid var(--border);
-  background: #1a1a24;
+  background: var(--accent-soft);
+  border-radius: 0 0 8px 8px;
 }
 
 .ghost-btn {
@@ -365,12 +396,21 @@ table.leaderboard {
 }
 
 .add-member button {
-  background: var(--accent);
+  background: var(--accent-strong);
   border: none;
   border-radius: 6px;
   color: #fff;
   padding: 0 16px;
   font-weight: 600;
+}
+
+.add-member button:hover:not(:disabled) {
+  background: var(--heading);
+}
+
+.add-member button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .member-list {
@@ -416,8 +456,8 @@ table.leaderboard {
 }
 
 .m-actions button.danger:hover:not(:disabled) {
-  color: #ff8080;
-  border-color: #ff8080;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .m-actions button:disabled {
