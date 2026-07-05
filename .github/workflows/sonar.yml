@@ -5,6 +5,11 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # Manual baseline re-run. Note: the community-branch-plugin refuses PR
+  # analysis until a main-branch analysis exists, so the first PR that adds
+  # this workflow inevitably has a red sonar check — merge it, let the push
+  # analysis establish the baseline, and every later PR analyzes normally.
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -17,7 +22,7 @@ jobs:
     # Fork PRs don't get repo secrets (SONAR_TOKEN) — skip rather than fail.
     # Pushes to main and same-repo PRs proceed as normal.
     if: >-
-      github.event_name == 'push' ||
+      github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: homelab-apps
     steps:
@@ -26,6 +31,12 @@ jobs:
           # Full history: sonar.scm.revision / new-code-since-baseline diffing
           # needs more than the default shallow clone.
           fetch-depth: 0
+
+      - name: Install dirmngr (scanner signature verification)
+        # The scan action verifies the scanner CLI's OpenPGP signature; gpg
+        # needs dirmngr for keyserver access, which the minimal ARC runner
+        # image lacks. Keep verification on rather than skipping it.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends dirmngr
 
       - name: Install Rust toolchain (clippy)
         # dobutsu-analyzer, dobutsu-record, suiso backends are analyzed by the
@@ -57,7 +68,7 @@ jobs:
             -Dsonar.scm.revision=${{ github.event.pull_request.head.sha }}
 
       - name: SonarQube scan (main baseline)
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         uses: SonarSource/sonarqube-scan-action@v8.2.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
