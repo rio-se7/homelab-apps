@@ -1,0 +1,67 @@
+name: SonarQube analysis
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  sonar:
+    # Fork PRs don't get repo secrets (SONAR_TOKEN) — skip rather than fail.
+    # Pushes to main and same-repo PRs proceed as normal.
+    if: >-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: homelab-apps
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: sonar.scm.revision / new-code-since-baseline diffing
+          # needs more than the default shallow clone.
+          fetch-depth: 0
+
+      - name: Install Rust toolchain (clippy)
+        # dobutsu-analyzer, dobutsu-record, suiso backends are analyzed by the
+        # Rust analyzer, which runs Clippy automatically as long as cargo +
+        # clippy are on PATH — no separate `cargo clippy` report step needed.
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo (backend crates)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            dobutsu-analyzer/backend
+            dobutsu-record/backend
+            suiso/backend
+
+      - name: SonarQube scan (PR analysis)
+        if: github.event_name == 'pull_request'
+        uses: SonarSource/sonarqube-scan-action@v8.2.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >-
+            -Dsonar.pullrequest.key=${{ github.event.pull_request.number }}
+            -Dsonar.pullrequest.branch=${{ github.head_ref }}
+            -Dsonar.pullrequest.base=${{ github.base_ref }}
+            -Dsonar.scm.revision=${{ github.event.pull_request.head.sha }}
+
+      - name: SonarQube scan (main baseline)
+        if: github.event_name == 'push'
+        uses: SonarSource/sonarqube-scan-action@v8.2.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >-
+            -Dsonar.branch.name=main
