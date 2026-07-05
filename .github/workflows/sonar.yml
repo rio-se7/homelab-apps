@@ -32,11 +32,21 @@ jobs:
           # needs more than the default shallow clone.
           fetch-depth: 0
 
-      - name: Install dirmngr (scanner signature verification)
-        # The scan action verifies the scanner CLI's OpenPGP signature; gpg
-        # needs dirmngr for keyserver access, which the minimal ARC runner
-        # image lacks. Keep verification on rather than skipping it.
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends dirmngr
+      - name: Install analysis prerequisites
+        # Minimal ARC runner image lacks all of these:
+        # - dirmngr: gpg keyserver access for the scanner signature check
+        # - build-essential/pkg-config/libssl-dev: C linker + headers so
+        #   Clippy can compile crate build scripts (proc-macro2 etc.)
+        run: >-
+          sudo apt-get update -qq &&
+          sudo apt-get install -y -qq --no-install-recommends
+          dirmngr build-essential pkg-config libssl-dev
+
+      - name: Install Node.js (JS/TS analysis)
+        # The JS/TS sensor needs a Node.js runtime on PATH.
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
       - name: Install Rust toolchain (clippy)
         # dobutsu-analyzer, dobutsu-record, suiso backends are analyzed by the
