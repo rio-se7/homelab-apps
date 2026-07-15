@@ -31,7 +31,9 @@ function parseStartFromUrl() {
 import { fetchEval, fetchMoves, type MoveEval } from './api/client';
 import { toScore } from './engine/score';
 import { analyzeCritical } from './analysis/critical';
-import { analyzeGame, type BlunderEntry } from './analysis/blunderReport';
+import { findBlunders, type BlunderEntry } from './analysis/blunderReport';
+import { findMissedChances, type ChanceSummary } from './analysis/missedChance';
+import { buildTimeline } from './analysis/timeline';
 import { loadStore, saveStore } from './quiz/srs';
 import { seedPositions } from './quiz/positions';
 import QuizPanel from './quiz/QuizPanel';
@@ -74,6 +76,7 @@ export default function App() {
 
   // ブランダー解析（反省点）
   const [blunders, setBlunders] = useState<BlunderEntry[] | null>(null);
+  const [chances, setChances] = useState<ChanceSummary | null>(null);
   const [analyzingBlunders, setAnalyzingBlunders] = useState(false);
   const [learnerSide, setLearnerSide] = useState<'black' | 'white'>('white');
 
@@ -151,19 +154,22 @@ export default function App() {
   // 全局面配列 (感想戦ナビゲーション用)
   const allPositions = [...stateHistory, gameState];
 
-  // 反省点解析: 自手番の WDL 悪化手を列挙し、ブランダー局面を SRS に登録（クイズ送り）
+  // 反省点解析: timeline を1回構築し、ブランダー検出と見逃したチャンス検出を両方走らせる。
+  // ブランダー局面は SRS に登録（クイズ送り）
   const runBlunderAnalysis = useCallback(() => {
     setAnalyzingBlunders(true);
     const positions = [...stateHistory, gameState];
-    analyzeGame(positions, learnerSide)
-      .then(report => {
+    buildTimeline(positions, learnerSide)
+      .then(timeline => {
+        const report = findBlunders(positions, timeline, learnerSide);
         setBlunders(report);
+        setChances(findMissedChances(positions, timeline, learnerSide));
         if (report.length > 0) {
           const states = report.map(e => positions[e.ply - 1]);
           saveStore(seedPositions(loadStore(), states));
         }
       })
-      .catch(() => setBlunders([]))
+      .catch(() => { setBlunders([]); setChances(null); })
       .finally(() => setAnalyzingBlunders(false));
   }, [stateHistory, gameState, learnerSide]);
 
@@ -720,6 +726,34 @@ export default function App() {
                     <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>※ ブランダー局面はクイズに登録されました</div>
                   </div>
                 )
+              )}
+            </div>
+          )}
+
+          {/* 見逃したチャンス検出 — 相手のミスで最善結果が改善した直後に取りこぼした局面 */}
+          {/* TODO(optional): EvalChart 側のマーク集合化（gift/drop の可視化）は今回スコープ外 */}
+          {reviewMode && !inSim && chances !== null && (
+            <div style={{ marginTop: 12, padding: '10px 12px', background: '#fff', borderRadius: 6, border: '1px solid #e8dcc0' }}>
+              <div style={{ fontSize: 13, fontWeight: 'bold', color: '#3a2800', marginBottom: 8 }}>見逃したチャンス</div>
+              {chances.offered === 0 ? (
+                <div style={{ fontSize: 13, color: '#666' }}>相手がチャンスをくれた局面はありませんでした</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ fontSize: 13, color: '#3a2800', marginBottom: 2 }}>
+                    チャンス {chances.offered} 回中 {chances.missed} 回を逃した（変換率 {Math.round(chances.conversionRate * 100)}%）
+                  </div>
+                  {chances.chances.map((c, i) => (
+                    <div key={i} onClick={() => setReviewIndex(c.ply)}
+                      title="クリックで該当手へジャンプ"
+                      style={{ cursor: 'pointer', fontSize: 13, padding: '4px 8px', borderRadius: 4,
+                        background: c.severity === 'critical' ? '#f8d7da' : '#ffe6cc',
+                        border: '1px solid', borderColor: c.severity === 'critical' ? '#e0a0a0' : '#e0b060' }}>
+                      <strong>{c.ply}手目</strong>: 相手が{c.offeredByPly}手目で緩め、{c.fromValue}→{c.offeredValue}のチャンスを{c.keptValue}に。
+                      最善は <span style={{ fontFamily: 'monospace' }}>{c.bestKifu}</span>
+                      {'（あなたの手: '}<span style={{ fontFamily: 'monospace' }}>{c.playedKifu}</span>{'）'}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
