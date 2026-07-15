@@ -68,6 +68,16 @@ jobs:
             dobutsu-record/backend
             suiso/backend
 
+      - name: Generate frontend coverage (JS/TS lcov for SonarQube)
+        # dobutsu-analyzer/frontend has a vitest suite; produce lcov before the
+        # scan so sonar.javascript.lcov.reportPaths has a report to ingest. Runs
+        # for both PR and baseline analyses. Add other frontends here as they
+        # grow test suites.
+        working-directory: dobutsu-analyzer/frontend
+        run: |
+          npm ci
+          npx vitest run --coverage
+
       - name: SonarQube scan (PR analysis)
         if: github.event_name == 'pull_request'
         uses: SonarSource/sonarqube-scan-action@v8.2.0

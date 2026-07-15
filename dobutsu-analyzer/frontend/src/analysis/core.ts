@@ -3,8 +3,10 @@ import type { MoveEval, WdlResult } from '../api/client';
 import { isBoardMove, type GameState, type MoveRecord } from '../engine/types';
 
 // Shared WDL helpers used by both blunder detection and missed-chance detection.
-export const rank = (r: WdlResult) => (r === 'win' ? 2 : r === 'draw' ? 1 : 0);
-export const label = (r: WdlResult) => (r === 'win' ? '勝ち' : r === 'draw' ? '分け' : '負け');
+const RANK: Record<WdlResult, 0 | 1 | 2> = { lose: 0, draw: 1, win: 2 };
+const LABEL: Record<WdlResult, string> = { lose: '負け', draw: '分け', win: '勝ち' };
+export const rank = (r: WdlResult): 0 | 1 | 2 => RANK[r];
+export const label = (r: WdlResult): string => LABEL[r];
 
 const COL_X: Record<string, number> = { A: 2, B: 1, C: 0 };
 const DROP_PT: Record<string, number> = { P: 1, E: 2, G: 3 };

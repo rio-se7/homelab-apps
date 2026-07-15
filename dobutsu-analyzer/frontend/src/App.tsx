@@ -720,15 +720,16 @@ export default function App() {
                   <div style={{ fontSize: 13, color: '#2a7a2a' }}>反省点なし — 最善を外していません 👏</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {blunders.map((b, i) => (
-                      <div key={i} onClick={() => setReviewIndex(b.ply)}
+                    {blunders.map(b => (
+                      <button key={b.ply} type="button" onClick={() => setReviewIndex(b.ply)}
                         title="クリックで該当手へジャンプ"
                         style={{ cursor: 'pointer', fontSize: 13, padding: '4px 8px', borderRadius: 4,
                           background: b.severity === 'blunder' ? '#f8d7da' : '#fff3cd',
-                          border: '1px solid', borderColor: b.severity === 'blunder' ? '#e0a0a0' : '#e0c060' }}>
+                          border: '1px solid', borderColor: b.severity === 'blunder' ? '#e0a0a0' : '#e0c060',
+                          display: 'block', width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit' }}>
                         <strong>{b.ply}手目</strong> {b.detail}：あなた <span style={{ fontFamily: 'monospace' }}>{b.playedKifu}</span>
                         {' / '}最善 <span style={{ fontFamily: 'monospace' }}>{b.bestKifu}</span>
-                      </div>
+                      </button>
                     ))}
                     <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>※ ブランダー局面はクイズに登録されました</div>
                   </div>
@@ -749,16 +750,17 @@ export default function App() {
                   <div style={{ fontSize: 13, color: '#3a2800', marginBottom: 2 }}>
                     チャンス {chances.offered} 回中 {chances.missed} 回を逃した（変換率 {Math.round(chances.conversionRate * 100)}%）
                   </div>
-                  {chances.chances.map((c, i) => (
-                    <div key={i} onClick={() => setReviewIndex(c.ply)}
+                  {chances.chances.map(c => (
+                    <button key={`${c.offeredByPly}-${c.ply}`} type="button" onClick={() => setReviewIndex(c.ply)}
                       title="クリックで該当手へジャンプ"
                       style={{ cursor: 'pointer', fontSize: 13, padding: '4px 8px', borderRadius: 4,
                         background: c.severity === 'critical' ? '#f8d7da' : '#ffe6cc',
-                        border: '1px solid', borderColor: c.severity === 'critical' ? '#e0a0a0' : '#e0b060' }}>
+                        border: '1px solid', borderColor: c.severity === 'critical' ? '#e0a0a0' : '#e0b060',
+                        display: 'block', width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit' }}>
                       <strong>{c.ply}手目</strong>: 相手が{c.offeredByPly}手目で緩め、{c.fromValue}→{c.offeredValue}のチャンスを{c.keptValue}に。
                       最善は <span style={{ fontFamily: 'monospace' }}>{c.bestKifu}</span>
                       {'（あなたの手: '}<span style={{ fontFamily: 'monospace' }}>{c.playedKifu}</span>{'）'}
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
