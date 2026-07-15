@@ -9,9 +9,18 @@ import { loadStore, saveStore, review, stats, type SrsStore } from './srs';
 import { dueQuizItems, allQuizItems, type QuizItem } from './positions';
 
 type QuizMode = 'due' | 'all';
+// 'all' = 全カード, 'missed' = 見逃したチャンスのみ, 'critical' = critical タグのみ
+// (フラット union のため両方持つカードはどちらのフィルタにも出る)
+type TagFilter = 'all' | 'missed' | 'critical';
 
-const buildQueue = (store: SrsStore, mode: QuizMode): QuizItem[] =>
-  mode === 'all' ? allQuizItems(store) : dueQuizItems(store);
+const matchesFilter = (item: QuizItem, filter: TagFilter): boolean => {
+  if (filter === 'all') return true;
+  if (filter === 'missed') return !!item.tags?.includes('missed-chance');
+  return !!item.tags?.includes('critical');
+};
+
+const buildQueue = (store: SrsStore, mode: QuizMode, filter: TagFilter): QuizItem[] =>
+  (mode === 'all' ? allQuizItems(store) : dueQuizItems(store)).filter(item => matchesFilter(item, filter));
 
 interface Props {
   onExit: () => void;
@@ -31,9 +40,11 @@ export default function QuizPanel({ onExit, isNarrow = false }: Props) {
   const [store, setStore] = useState<SrsStore>(() => loadStore());
   // 'due' = 出題待ちのみ（SRS本来の間隔反復）, 'all' = 登録局面を全部回す（総復習）
   const [mode, setMode] = useState<QuizMode>('due');
+  // タグによる絞り込み（due/all どちらのキューにも適用）
+  const [filter, setFilter] = useState<TagFilter>('all');
   // Snapshot the queue once at session start so reviewing a card mid-session
   // doesn't reshuffle the remaining questions.
-  const [queue, setQueue] = useState<QuizItem[]>(() => dueQuizItems(loadStore()));
+  const [queue, setQueue] = useState<QuizItem[]>(() => buildQueue(loadStore(), 'due', 'all'));
   const [qIndex, setQIndex] = useState(0);
 
   const [candidates, setCandidates] = useState<MoveEval[] | null>(null);
@@ -128,19 +139,34 @@ export default function QuizPanel({ onExit, isNarrow = false }: Props) {
     setQIndex(i => i + 1);
   }, []);
 
-  const restart = useCallback((nextMode: QuizMode = mode) => {
+  const restart = useCallback((nextMode: QuizMode = mode, nextFilter: TagFilter = filter) => {
     const fresh = loadStore();
     resetQuestionState();
     setStore(fresh);
     setMode(nextMode);
-    setQueue(buildQueue(fresh, nextMode));
+    setFilter(nextFilter);
+    setQueue(buildQueue(fresh, nextMode, nextFilter));
     setQIndex(0);
     setSession({ answered: 0, correct: 0, streak: 0 });
-  }, [mode]);
+  }, [mode, filter]);
 
   const switchMode = useCallback((next: QuizMode) => {
-    if (next !== mode) restart(next);
-  }, [mode, restart]);
+    if (next !== mode) restart(next, filter);
+  }, [mode, filter, restart]);
+
+  const switchFilter = useCallback((next: TagFilter) => {
+    if (next !== filter) restart(mode, next);
+  }, [mode, filter, restart]);
+
+  // Filter option counts against the current mode's full (unfiltered) queue, for the segment badges.
+  const filterCounts = useMemo(() => {
+    const base = mode === 'all' ? allQuizItems(store) : dueQuizItems(store);
+    return {
+      all: base.length,
+      missed: base.filter(i => i.tags?.includes('missed-chance')).length,
+      critical: base.filter(i => i.tags?.includes('critical')).length,
+    };
+  }, [store, mode]);
 
   const sessionRate = session.answered > 0 ? Math.round((session.correct / session.answered) * 100) : 0;
   const done = qIndex >= queue.length;
@@ -162,6 +188,19 @@ export default function QuizPanel({ onExit, isNarrow = false }: Props) {
             >{label}</button>
           ))}
         </div>
+        <div style={{ display: 'flex', gap: 0, border: '1px solid #d8c8a0', borderRadius: 6, overflow: 'hidden' }}>
+          {([['all', 'すべて'], ['missed', '見逃しのみ'], ['critical', 'criticalのみ']] as const).map(([f, label]) => (
+            <button
+              key={f}
+              onClick={() => switchFilter(f)}
+              style={{
+                padding: '4px 12px', fontSize: 12, border: 'none', cursor: 'pointer',
+                background: filter === f ? '#c8a84a' : '#fff',
+                color: filter === f ? '#fff' : '#5a4a20',
+              }}
+            >{label}（{filterCounts[f]}）</button>
+          ))}
+        </div>
         <button onClick={onExit} style={{ padding: '4px 12px', fontSize: 12 }}>終了</button>
       </div>
 
@@ -178,7 +217,10 @@ export default function QuizPanel({ onExit, isNarrow = false }: Props) {
 
       {queue.length === 0 ? (
         <div style={{ fontSize: 14, color: '#7a5a1a', lineHeight: 1.7, background: '#fff', borderRadius: 6, padding: 16 }}>
-          {mode === 'due' && storeStats.total > 0 ? (
+          {filter !== 'all' && filterCounts.all > 0 ? (
+            <>このフィルタに該当する局面はありません。<br />
+            上の <strong>「すべて」</strong> に切り替えると{filterCounts.all}問を出題できます。</>
+          ) : mode === 'due' && storeStats.total > 0 ? (
             <>出題待ちの局面はありません（全 {storeStats.total} 問は復習間隔の待機中）。<br />
             今すぐ全部解き直すなら上の <strong>「全表示」</strong> に切り替えてください。</>
           ) : (

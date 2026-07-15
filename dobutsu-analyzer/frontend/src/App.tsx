@@ -35,7 +35,7 @@ import { findBlunders, type BlunderEntry } from './analysis/blunderReport';
 import { findMissedChances, type ChanceSummary } from './analysis/missedChance';
 import { buildTimeline } from './analysis/timeline';
 import { loadStore, saveStore } from './quiz/srs';
-import { seedPositions } from './quiz/positions';
+import { seedTagged } from './quiz/positions';
 import QuizPanel from './quiz/QuizPanel';
 
 type AiLevel = 'strongest' | 'strong' | 'normal' | 'weak';
@@ -154,20 +154,27 @@ export default function App() {
   // 全局面配列 (感想戦ナビゲーション用)
   const allPositions = [...stateHistory, gameState];
 
+  // ブランダー severity ("blunder"/"mistake") を SRS タグ語彙 ("critical"/"major") に正規化。
+  // WDL 2段落ち = critical、1段落ち = major。見逃したチャンス側の severity はそのまま使う。
+  const blunderSeverityTag = (s: BlunderEntry['severity']): string => (s === 'blunder' ? 'critical' : 'major');
+
   // 反省点解析: timeline を1回構築し、ブランダー検出と見逃したチャンス検出を両方走らせる。
-  // ブランダー局面は SRS に登録（クイズ送り）
+  // 両方の局面を種別+severity タグ付きで SRS に登録（クイズ送り）。見逃したチャンスは
+  // ブランダーの部分集合なので、同一局面が両方に該当すればタグは union される（seedTagged/upsert 側）。
   const runBlunderAnalysis = useCallback(() => {
     setAnalyzingBlunders(true);
     const positions = [...stateHistory, gameState];
     buildTimeline(positions, learnerSide)
       .then(timeline => {
         const report = findBlunders(positions, timeline, learnerSide);
+        const chanceSummary = findMissedChances(positions, timeline, learnerSide);
         setBlunders(report);
-        setChances(findMissedChances(positions, timeline, learnerSide));
-        if (report.length > 0) {
-          const states = report.map(e => positions[e.ply - 1]);
-          saveStore(seedPositions(loadStore(), states));
-        }
+        setChances(chanceSummary);
+        const tagged = [
+          ...report.map(e => ({ state: positions[e.ply - 1], tags: ['blunder', blunderSeverityTag(e.severity)] })),
+          ...chanceSummary.chances.map(c => ({ state: positions[c.ply - 1], tags: ['missed-chance', c.severity] })),
+        ];
+        if (tagged.length > 0) saveStore(seedTagged(loadStore(), tagged));
       })
       .catch(() => { setBlunders([]); setChances(null); })
       .finally(() => setAnalyzingBlunders(false));
