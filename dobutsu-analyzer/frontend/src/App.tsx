@@ -31,9 +31,11 @@ function parseStartFromUrl() {
 import { fetchEval, fetchMoves, type MoveEval } from './api/client';
 import { toScore } from './engine/score';
 import { analyzeCritical } from './analysis/critical';
-import { analyzeGame, type BlunderEntry } from './analysis/blunderReport';
+import { findBlunders, type BlunderEntry } from './analysis/blunderReport';
+import { findMissedChances, type ChanceSummary } from './analysis/missedChance';
+import { buildTimeline } from './analysis/timeline';
 import { loadStore, saveStore } from './quiz/srs';
-import { seedPositions } from './quiz/positions';
+import { seedTagged } from './quiz/positions';
 import QuizPanel from './quiz/QuizPanel';
 
 type AiLevel = 'strongest' | 'strong' | 'normal' | 'weak';
@@ -74,6 +76,7 @@ export default function App() {
 
   // ブランダー解析（反省点）
   const [blunders, setBlunders] = useState<BlunderEntry[] | null>(null);
+  const [chances, setChances] = useState<ChanceSummary | null>(null);
   const [analyzingBlunders, setAnalyzingBlunders] = useState(false);
   const [learnerSide, setLearnerSide] = useState<'black' | 'white'>('white');
 
@@ -151,19 +154,29 @@ export default function App() {
   // 全局面配列 (感想戦ナビゲーション用)
   const allPositions = [...stateHistory, gameState];
 
-  // 反省点解析: 自手番の WDL 悪化手を列挙し、ブランダー局面を SRS に登録（クイズ送り）
+  // ブランダー severity ("blunder"/"mistake") を SRS タグ語彙 ("critical"/"major") に正規化。
+  // WDL 2段落ち = critical、1段落ち = major。見逃したチャンス側の severity はそのまま使う。
+  const blunderSeverityTag = (s: BlunderEntry['severity']): string => (s === 'blunder' ? 'critical' : 'major');
+
+  // 反省点解析: timeline を1回構築し、ブランダー検出と見逃したチャンス検出を両方走らせる。
+  // 両方の局面を種別+severity タグ付きで SRS に登録（クイズ送り）。見逃したチャンスは
+  // ブランダーの部分集合なので、同一局面が両方に該当すればタグは union される（seedTagged/upsert 側）。
   const runBlunderAnalysis = useCallback(() => {
     setAnalyzingBlunders(true);
     const positions = [...stateHistory, gameState];
-    analyzeGame(positions, learnerSide)
-      .then(report => {
+    buildTimeline(positions, learnerSide)
+      .then(timeline => {
+        const report = findBlunders(positions, timeline, learnerSide);
+        const chanceSummary = findMissedChances(positions, timeline, learnerSide);
         setBlunders(report);
-        if (report.length > 0) {
-          const states = report.map(e => positions[e.ply - 1]);
-          saveStore(seedPositions(loadStore(), states));
-        }
+        setChances(chanceSummary);
+        const tagged = [
+          ...report.map(e => ({ state: positions[e.ply - 1], tags: ['blunder', blunderSeverityTag(e.severity)] })),
+          ...chanceSummary.chances.map(c => ({ state: positions[c.ply - 1], tags: ['missed-chance', c.severity] })),
+        ];
+        if (tagged.length > 0) saveStore(seedTagged(loadStore(), tagged));
       })
-      .catch(() => setBlunders([]))
+      .catch(() => { setBlunders([]); setChances(null); })
       .finally(() => setAnalyzingBlunders(false));
   }, [stateHistory, gameState, learnerSide]);
 
@@ -707,19 +720,49 @@ export default function App() {
                   <div style={{ fontSize: 13, color: '#2a7a2a' }}>反省点なし — 最善を外していません 👏</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {blunders.map((b, i) => (
-                      <div key={i} onClick={() => setReviewIndex(b.ply)}
+                    {blunders.map(b => (
+                      <button key={b.ply} type="button" onClick={() => setReviewIndex(b.ply)}
                         title="クリックで該当手へジャンプ"
                         style={{ cursor: 'pointer', fontSize: 13, padding: '4px 8px', borderRadius: 4,
                           background: b.severity === 'blunder' ? '#f8d7da' : '#fff3cd',
-                          border: '1px solid', borderColor: b.severity === 'blunder' ? '#e0a0a0' : '#e0c060' }}>
+                          border: '1px solid', borderColor: b.severity === 'blunder' ? '#e0a0a0' : '#e0c060',
+                          display: 'block', width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit' }}>
                         <strong>{b.ply}手目</strong> {b.detail}：あなた <span style={{ fontFamily: 'monospace' }}>{b.playedKifu}</span>
                         {' / '}最善 <span style={{ fontFamily: 'monospace' }}>{b.bestKifu}</span>
-                      </div>
+                      </button>
                     ))}
                     <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>※ ブランダー局面はクイズに登録されました</div>
                   </div>
                 )
+              )}
+            </div>
+          )}
+
+          {/* 見逃したチャンス検出 — 相手のミスで最善結果が改善した直後に取りこぼした局面 */}
+          {/* Note: EvalChart 側のマーク集合化（gift/drop の可視化）は別 issue で対応予定 */}
+          {reviewMode && !inSim && chances !== null && (
+            <div style={{ marginTop: 12, padding: '10px 12px', background: '#fff', borderRadius: 6, border: '1px solid #e8dcc0' }}>
+              <div style={{ fontSize: 13, fontWeight: 'bold', color: '#3a2800', marginBottom: 8 }}>見逃したチャンス</div>
+              {chances.offered === 0 ? (
+                <div style={{ fontSize: 13, color: '#666' }}>相手がチャンスをくれた局面はありませんでした</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ fontSize: 13, color: '#3a2800', marginBottom: 2 }}>
+                    チャンス {chances.offered} 回中 {chances.missed} 回を逃した（変換率 {Math.round(chances.conversionRate * 100)}%）
+                  </div>
+                  {chances.chances.map(c => (
+                    <button key={`${c.offeredByPly}-${c.ply}`} type="button" onClick={() => setReviewIndex(c.ply)}
+                      title="クリックで該当手へジャンプ"
+                      style={{ cursor: 'pointer', fontSize: 13, padding: '4px 8px', borderRadius: 4,
+                        background: c.severity === 'critical' ? '#f8d7da' : '#ffe6cc',
+                        border: '1px solid', borderColor: c.severity === 'critical' ? '#e0a0a0' : '#e0b060',
+                        display: 'block', width: '100%', textAlign: 'left', font: 'inherit', color: 'inherit' }}>
+                      <strong>{c.ply}手目</strong>: 相手が{c.offeredByPly}手目で緩め、{c.fromValue}→{c.offeredValue}のチャンスを{c.keptValue}に。
+                      最善は <span style={{ fontFamily: 'monospace' }}>{c.bestKifu}</span>
+                      {'（あなたの手: '}<span style={{ fontFamily: 'monospace' }}>{c.playedKifu}</span>{'）'}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           )}
