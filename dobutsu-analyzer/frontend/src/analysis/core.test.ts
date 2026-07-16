@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { rank, label, recCoords, matchPlayed } from './core';
 import { coordsEqual, toApiMv } from './testkit';
 import { initialState, applyMove, legalMoves } from '../engine/board';
+import type { Move } from '../engine/types';
 import type { MoveEval } from '../api/client';
 
 describe('rank / label', () => {
@@ -32,20 +33,25 @@ describe('recCoords', () => {
   });
 });
 
+// A distinct legal move that isn't `played` (throws if none, keeping the type non-null).
+function otherMoveThan(before: ReturnType<typeof initialState>, played: Move) {
+  const other = legalMoves(before).find(m => !coordsEqual(m, played));
+  if (!other) throw new Error('expected a second distinct legal move');
+  return other;
+}
+const lastRecord = (s: ReturnType<typeof initialState>) => s.history[s.history.length - 1];
+
 describe('matchPlayed', () => {
   it('finds the candidate matching the actually-played move by coordinates', () => {
     const before = initialState();
-    const moves = legalMoves(before);
-    const played = moves[0];
-    const other = moves.find(m => !coordsEqual(m, played));
-    expect(other).toBeDefined();
+    const played = legalMoves(before)[0];
+    const other = otherMoveThan(before, played);
 
     const candidates: MoveEval[] = [
-      { mv: toApiMv(other!, before), result: 'win', dtm: 3 },
+      { mv: toApiMv(other, before), result: 'win', dtm: 3 },
       { mv: toApiMv(played, before), result: 'draw', dtm: 0 },
     ];
-    const after = applyMove(before, played);
-    const rec = after.history.at(-1)!;
+    const rec = lastRecord(applyMove(before, played));
     const match = matchPlayed(candidates, before, rec);
     expect(match?.mv).toBe(toApiMv(played, before));
     expect(match?.result).toBe('draw');
@@ -54,9 +60,8 @@ describe('matchPlayed', () => {
   it('returns undefined when no candidate matches', () => {
     const before = initialState();
     const played = legalMoves(before)[0];
-    const after = applyMove(before, played);
-    const rec = after.history.at(-1)!;
-    const other = legalMoves(before).find(m => !coordsEqual(m, played))!;
+    const other = otherMoveThan(before, played);
+    const rec = lastRecord(applyMove(before, played));
     const candidates: MoveEval[] = [{ mv: toApiMv(other, before), result: 'win', dtm: 1 }];
     expect(matchPlayed(candidates, before, rec)).toBeUndefined();
   });

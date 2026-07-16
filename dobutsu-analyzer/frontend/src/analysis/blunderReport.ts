@@ -1,6 +1,6 @@
 import { apiMoveToKifu } from '../engine/board';
 import type { GameState } from '../engine/types';
-import { rank, label, matchPlayed, recCoords } from './core';
+import { rank, label, matchPlayed } from './core';
 import { buildTimeline, type Ply } from './timeline';
 
 export interface BlunderEntry {
@@ -13,7 +13,7 @@ export interface BlunderEntry {
 
 // Re-exported for callers that imported these from blunderReport before the
 // analysis/core.ts split (e.g. quiz/QuizPanel.tsx).
-export { matchPlayed, recCoords };
+export { matchPlayed, recCoords } from './core';
 
 /**
  * positions: full sequence from start to end (App's `allPositions`, length = plies + 1).

@@ -217,16 +217,20 @@ export default function QuizPanel({ onExit, isNarrow = false }: Props) {
 
       {queue.length === 0 ? (
         <div style={{ fontSize: 14, color: '#7a5a1a', lineHeight: 1.7, background: '#fff', borderRadius: 6, padding: 16 }}>
-          {filter !== 'all' && filterCounts.all > 0 ? (
-            <>このフィルタに該当する局面はありません。<br />
-            上の <strong>「すべて」</strong> に切り替えると{filterCounts.all}問を出題できます。</>
-          ) : mode === 'due' && storeStats.total > 0 ? (
-            <>出題待ちの局面はありません（全 {storeStats.total} 問は復習間隔の待機中）。<br />
-            今すぐ全部解き直すなら上の <strong>「全表示」</strong> に切り替えてください。</>
-          ) : (
-            <>出題できる局面がありません。<br />
-            対局後に <strong>感想戦 →「反省点を解析」</strong> を実行すると、ブランダー局面がクイズに追加されます。</>
-          )}
+          {(() => {
+            if (filter !== 'all' && filterCounts.all > 0) return (
+              <>このフィルタに該当する局面はありません。<br />
+              上の <strong>「すべて」</strong> に切り替えると{filterCounts.all}問を出題できます。</>
+            );
+            if (mode === 'due' && storeStats.total > 0) return (
+              <>出題待ちの局面はありません（全 {storeStats.total} 問は復習間隔の待機中）。<br />
+              今すぐ全部解き直すなら上の <strong>「全表示」</strong> に切り替えてください。</>
+            );
+            return (
+              <>出題できる局面がありません。<br />
+              対局後に <strong>感想戦 →「反省点を解析」</strong> を実行すると、ブランダー局面がクイズに追加されます。</>
+            );
+          })()}
         </div>
       ) : done ? (
         <div style={{ fontSize: 15, color: '#3a2800', background: '#fff', borderRadius: 6, padding: 20, textAlign: 'center' }}>

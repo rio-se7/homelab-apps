@@ -739,7 +739,7 @@ export default function App() {
           )}
 
           {/* 見逃したチャンス検出 — 相手のミスで最善結果が改善した直後に取りこぼした局面 */}
-          {/* TODO(optional): EvalChart 側のマーク集合化（gift/drop の可視化）は今回スコープ外 */}
+          {/* Note: EvalChart 側のマーク集合化（gift/drop の可視化）は別 issue で対応予定 */}
           {reviewMode && !inSim && chances !== null && (
             <div style={{ marginTop: 12, padding: '10px 12px', background: '#fff', borderRadius: 6, border: '1px solid #e8dcc0' }}>
               <div style={{ fontSize: 13, fontWeight: 'bold', color: '#3a2800', marginBottom: 8 }}>見逃したチャンス</div>

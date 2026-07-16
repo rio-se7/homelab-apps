@@ -77,6 +77,10 @@ jobs:
         run: |
           npm ci
           npx vitest run --coverage
+          # The scanner runs at the repo root, but v8 writes lcov source paths
+          # relative to this dir (SF:src/...). Rewrite them to repo-root-relative
+          # so SonarQube maps coverage onto the real files.
+          sed -i 's|^SF:src/|SF:dobutsu-analyzer/frontend/src/|' coverage/lcov.info
 
       - name: SonarQube scan (PR analysis)
         if: github.event_name == 'pull_request'
