@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Board from '../components/Board';
 import HandArea from '../components/HandArea';
-import { type Move, type MoveRecord, isBoardMove, type DropMove } from '../engine/types';
+import { type Move, type MoveRecord, isBoardMove } from '../engine/types';
 import { legalMoves, encodeForApi, apiMoveToKifu } from '../engine/board';
 import { fetchMoves, type MoveEval } from '../api/client';
 import { matchPlayed } from '../analysis/blunderReport';
@@ -104,7 +104,7 @@ export default function QuizPanel({ onExit, isNarrow = false }: Props) {
     if (!current || verdict) return;
     if (selectedDrop !== null) {
       const drop = validMoves.find(
-        m => !isBoardMove(m) && (m as DropMove).piece === selectedDrop && m.to[0] === x && m.to[1] === y,
+        m => !isBoardMove(m) && m.piece === selectedDrop && m.to[0] === x && m.to[1] === y,
       );
       if (drop) grade(drop);
       else setSelectedDrop(null);

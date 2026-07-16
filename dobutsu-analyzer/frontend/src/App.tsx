@@ -3,7 +3,7 @@ import Board from './components/Board';
 import HandArea from './components/HandArea';
 import EvalChart, { type EvalPoint } from './components/EvalChart';
 import SetupPanel from './components/SetupPanel';
-import { type GameState, type Move, type DropMove, isBoardMove, EMPTY } from './engine/types';
+import { type GameState, type Move, isBoardMove, EMPTY } from './engine/types';
 import {
   initialState, legalMoves, applyMove, checkWinner,
   encodeForApi, toKifuNotation, apiMoveToKifu, moveFromApiNotation,
@@ -276,8 +276,8 @@ export default function App() {
   }, []);
 
   const undoMove = useCallback(() => {
-    if (stateHistory.length === 0) return;
-    const prev = stateHistory[stateHistory.length - 1];
+    const prev = stateHistory.at(-1);
+    if (!prev) return;
     setGameState(prev);
     setStateHistory(h => h.slice(0, -1));
     setEvalHistory(h => h.slice(0, -1));
@@ -316,7 +316,7 @@ export default function App() {
     if (winner) return;
     if (selectedDrop !== null) {
       const drop = validMoves.find(
-        m => !isBoardMove(m) && (m as DropMove).piece === selectedDrop && m.to[0] === x && m.to[1] === y
+        m => !isBoardMove(m) && m.piece === selectedDrop && m.to[0] === x && m.to[1] === y
       );
       if (drop) executeMove(drop);
       else setSelectedDrop(null);
@@ -445,10 +445,11 @@ export default function App() {
     );
   }
 
-  const simWinner = inSim ? checkWinner(simLine[simLine.length - 1], null) : null;
+  const simLast = inSim ? simLine.at(-1) : undefined;
+  const simWinner = simLast ? checkWinner(simLast, null) : null;
   const simCurrentNotation = inSim && simStep > 0
     ? (() => {
-        const rec = simLine[simStep].history[simLine[simStep].history.length - 1];
+        const rec = simLine[simStep].history.at(-1);
         return rec ? toKifuNotation(rec.notation, simLine[simStep - 1].turn) : '';
       })()
     : '';
