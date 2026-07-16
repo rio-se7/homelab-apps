@@ -39,7 +39,7 @@ function otherMoveThan(before: ReturnType<typeof initialState>, played: Move) {
   if (!other) throw new Error('expected a second distinct legal move');
   return other;
 }
-const lastRecord = (s: ReturnType<typeof initialState>) => s.history[s.history.length - 1];
+const lastRecord = (s: ReturnType<typeof initialState>) => s.history.at(-1);
 
 describe('matchPlayed', () => {
   it('finds the candidate matching the actually-played move by coordinates', () => {
