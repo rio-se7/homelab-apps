@@ -76,6 +76,11 @@ jobs:
         working-directory: dobutsu-analyzer/frontend
         run: |
           npm ci
+          # Type-check with the same command the Dockerfile build uses (tsc -b).
+          # `tsc --noEmit` on the solution tsconfig checks nothing (it only holds
+          # project references), so without this a type error surfaces only at
+          # image-build time on main — after the PR is already merged.
+          npx tsc -b
           npx vitest run --coverage
           # The scanner runs at the repo root, but v8 writes lcov source paths
           # relative to this dir (SF:src/...). Rewrite them to repo-root-relative
