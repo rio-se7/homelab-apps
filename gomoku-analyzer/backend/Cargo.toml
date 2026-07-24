@@ -1,0 +1,34 @@
+[package]
+name = "gomoku-analyzer"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "gomoku_analyzer"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gomoku-analyzer"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tower-http = { version = "0.6", features = ["cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+# Small-vec-optimized storage for FiveThreat::completion_squares (usually 1-2
+# elements) -- avoids a heap Vec for the common case. See pattern.rs.
+smallvec = "1"
+
+[dev-dependencies]
+# Only used to drive axum::Router in integration tests via
+# tower::ServiceExt::oneshot (api.rs tests) -- not needed at runtime.
+tower = { version = "0.5", features = ["util"] }
+
+[profile.release]
+opt-level = 3
