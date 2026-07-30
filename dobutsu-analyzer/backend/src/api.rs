@@ -74,6 +74,13 @@ pub async fn moves(
         Err(s) => return (s, Json(serde_json::json!({"error": "invalid pos"}))).into_response(),
     };
 
+    // Reject a position the table does not know about (a broken piece inventory
+    // built in the frontend's setup mode) instead of answering 200 with an empty
+    // move list, which used to make the failure invisible in the UI.
+    if let Err(e) = tb.lookup(board) {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": e.to_string()}))).into_response();
+    }
+
     let legal = board.legal_moves();
     let mut move_evals = Vec::with_capacity(legal.len());
 
