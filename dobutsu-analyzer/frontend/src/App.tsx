@@ -28,7 +28,8 @@ function parseStartFromUrl() {
   }
   return { gameState: initialState(), stateHistory: [] as GameState[], isFromUrl: false };
 }
-import { fetchEval, fetchMoves, type MoveEval } from './api/client';
+import { fetchEval, fetchMoves, apiErrorMessage, type MoveEval } from './api/client';
+import { capsRespected, remainingForPalette } from './engine/inventory';
 import { toScore } from './engine/score';
 import { analyzeCritical } from './analysis/critical';
 import { findBlunders, type BlunderEntry } from './analysis/blunderReport';
@@ -130,7 +131,11 @@ export default function App() {
     const allPos = [...initSh, initGs];
 
     if (isFromUrl && allPos.length > 1) {
-      Promise.all(allPos.map(s => fetchEval(encodeForApi(s)).catch(() => null)))
+      let firstError: unknown = null;
+      Promise.all(allPos.map(s => fetchEval(encodeForApi(s)).catch(e => {
+        firstError ??= e;
+        return null;
+      })))
         .then(results => {
           const points: EvalPoint[] = [];
           results.forEach((r, i) => {
@@ -141,13 +146,15 @@ export default function App() {
             points.push({ move: i, score: toScore(r.result, r.dtm, allPos[i].turn), notation });
           });
           setEvalHistory(points);
+          // 共有 URL の局面が1つも引けないのは局面自体が解析対象外のとき
+          if (points.length === 0 && results.length > 0) setEvalError(apiErrorMessage(firstError));
         });
     } else {
       const startState = allPos[0];
       fetchEval(encodeForApi(startState)).then(r => {
         const notation = isFromUrl ? '共有局面' : '初期局面';
         setEvalHistory([{ move: 0, score: toScore(r.result, r.dtm, startState.turn), notation }]);
-      }).catch(() => {});
+      }).catch(e => setEvalError(apiErrorMessage(e)));
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -249,12 +256,17 @@ export default function App() {
     const blackPos = encodeForApi({ ...gameState, turn: 'black' });
     const whitePos = encodeForApi({ ...gameState, turn: 'white' });
 
-    fetchMoves(blackPos)
-      .then(r => setBlackMoveEvals(r.moves))
-      .catch(e => setEvalError(String(e)));
-    fetchMoves(whitePos)
-      .then(r => setWhiteMoveEvals(r.moves))
-      .catch(() => {});
+    // 片方でも失敗したら理由を出し、前局面の評価が残らないようにリストを空にする
+    Promise.all([fetchMoves(blackPos), fetchMoves(whitePos)])
+      .then(([b, w]) => {
+        setBlackMoveEvals(b.moves);
+        setWhiteMoveEvals(w.moves);
+      })
+      .catch(e => {
+        setBlackMoveEvals([]);
+        setWhiteMoveEvals([]);
+        setEvalError(apiErrorMessage(e));
+      });
   }, [gameState, winner, setupMode]);
 
   const resetGame = useCallback(() => {
@@ -310,7 +322,12 @@ export default function App() {
       if (setupPiece === null) return;
       const newBoard = gameState.board.map(col => [...col]);
       newBoard[x][y] = newBoard[x][y] === setupPiece ? EMPTY : setupPiece;
+      const next = { ...gameState, board: newBoard };
+      // 在庫を超える配置は無視（パレット側の無効化との二重防御）。消去は常に許可される
+      if (!capsRespected(next)) return;
       setGameState(s => ({ ...s, board: newBoard }));
+      // 置いた駒の在庫が尽きたら選択を解除する
+      if (setupPiece !== EMPTY && remainingForPalette(next, setupPiece) === 0) setSetupPiece(null);
       return;
     }
     if (winner) return;
@@ -353,8 +370,12 @@ export default function App() {
     setWhiteMoveEvals([]);
     const pos = encodeForApi(gameState);
     fetchEval(pos).then(r => {
+      setEvalError(null);
       setEvalHistory([{ move: 0, score: toScore(r.result, r.dtm, gameState.turn), notation: 'セットアップ局面' }]);
-    }).catch(() => setEvalHistory([]));
+    }).catch(e => {
+      setEvalHistory([]);
+      setEvalError(apiErrorMessage(e));
+    });
   }, [gameState]);
 
   // シミュレーション: 感想戦中に選択した手を起点に双方最善手で終局まで計算
@@ -402,7 +423,9 @@ export default function App() {
     setGameState(s => {
       const hand = { black: [...s.hand.black], white: [...s.hand.white] };
       hand[player][pieceType - 1] = Math.min(2, Math.max(0, hand[player][pieceType - 1] + delta));
-      return { ...s, hand };
+      const next = { ...s, hand };
+      // 在庫を超える増加は無視（SetupPanel 側の ＋ 無効化との二重防御）
+      return capsRespected(next) ? next : s;
     });
   }, []);
 

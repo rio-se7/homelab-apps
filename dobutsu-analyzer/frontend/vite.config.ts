@@ -17,7 +17,12 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       reportsDirectory: 'coverage',
-      include: ['src/analysis/**/*.ts', 'src/quiz/**/*.ts'],
+      include: [
+        'src/analysis/**/*.ts', 'src/quiz/**/*.ts',
+        // Unit-tested engine/API modules — kept in the report so SonarQube sees
+        // their coverage instead of treating new lines here as untested.
+        'src/engine/inventory.ts', 'src/api/client.ts',
+      ],
       // Test files and shared test helpers are not production code.
       exclude: ['**/*.test.ts', '**/testkit.ts'],
     },
