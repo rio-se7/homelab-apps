@@ -26,6 +26,14 @@ export class ApiError extends Error {
   }
 }
 
+// Never stringify an unknown value directly — an object would render as
+// "[object Object]".
+function describeError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'string') return e;
+  return 'unknown error';
+}
+
 // Reason to show the user for a failed lookup. 404 is the common case: the
 // position is not part of the perfect-play table — a broken piece inventory
 // built in setup mode, or a finished game.
@@ -39,7 +47,7 @@ export function apiErrorMessage(e: unknown): string {
     }
     return `評価の取得に失敗しました (${e.status})`;
   }
-  return `評価の取得に失敗しました (${e instanceof Error ? e.message : String(e)})`;
+  return `評価の取得に失敗しました (${describeError(e)})`;
 }
 
 export async function fetchEval(pos: string): Promise<EvalResponse> {

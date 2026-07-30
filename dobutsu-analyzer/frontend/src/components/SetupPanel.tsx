@@ -171,17 +171,19 @@ const btnStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
 
-function PieceButton({ label, remaining, selected, color, rotated = false, onClick }: {
+function PieceButton({ label, remaining, selected, color, rotated = false, onClick }: Readonly<{
   label: string; remaining: number; selected: boolean;
   color: string; rotated?: boolean; onClick: () => void;
-}) {
+}>) {
   const disabled = remaining === 0;
   return (
-    <div
-      onClick={disabled ? undefined : onClick}
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
       title={disabled ? '在庫がありません（先に盤上から消去してください）' : undefined}
       style={{
-        width: 36, height: 44,
+        width: 36, height: 44, padding: 0, font: 'inherit',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         background: selected ? '#ffd700' : '#fff',
         border: `1px solid ${selected ? '#aaa' : '#ccc'}`,
@@ -192,6 +194,6 @@ function PieceButton({ label, remaining, selected, color, rotated = false, onCli
     >
       <span style={{ fontSize: 18, lineHeight: 1, transform: rotated ? 'rotate(180deg)' : undefined }}>{label}</span>
       <span style={{ fontSize: 9, lineHeight: 1, marginTop: 3, color: '#888' }}>残{remaining}</span>
-    </div>
+    </button>
   );
 }
