@@ -11,12 +11,26 @@ on:
   # analysis establish the baseline, and every later PR analyzes normally.
   workflow_dispatch:
 
+# One analysis at a time. The scanner and the SonarQube server it uploads to
+# share a single 2 vCPU / 12 GiB node, and on 2026-07-30 an analysis drove the
+# node into an I/O stall (MemAvailable 1.3Gi, disk util 90%, PSI io full stall
+# 0.73) — kubelet's probes timed out and every pod's container was restarted,
+# taking CoreDNS with them. Queue runs instead of overlapping them; superseded
+# runs are not cancelled so a main-branch baseline always completes.
+concurrency:
+  group: sonar
+  cancel-in-progress: false
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # The Rust sensor runs `cargo clippy` inside the scanner process; cap the
   # parallel rustc jobs so peak memory stays inside the runner pod's limit
   # (scanner JVMs + Node already take ~700Mi of it).
   CARGO_BUILD_JOBS: "2"
+  # Bound the scanner JVM explicitly rather than letting it size itself from
+  # the node's total RAM. SONAR_SCANNER_JAVA_OPTS is the scanner-CLI >= 6.0
+  # variable (the action runs 8.x); SONAR_SCANNER_OPTS is the pre-6.0 name.
+  SONAR_SCANNER_JAVA_OPTS: "-Xmx512m"
 
 permissions:
   contents: read
