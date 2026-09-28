@@ -1,0 +1,132 @@
+name: Publish sqlite-snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full merged main commit SHA approved for publication
+        required: true
+        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: homelab-apps
+    steps:
+      - name: Verify approved main revision
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != refs/heads/main ]] ||
+             [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+             [[ "$GITHUB_SHA" != "$EXPECTED_SHA" ]]; then
+            printf 'Publication source mismatch\n' >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify checked-out revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Build image and validate runtime offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          version="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          image="ghcr.io/rio-se7/sqlite-snapshot:${version}"
+
+          docker build --platform linux/arm64 --pull --no-cache \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=${version}" \
+            -t "$image" ops/sqlite-snapshot
+
+          image_id="$(docker image inspect --format '{{.Id}}' "$image")"
+          test -n "$image_id"
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = linux/arm64
+          test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/bin/sh"]'
+          image_user="$(
+            docker image inspect \
+              --format '{{if index .Config "User"}}{{index .Config "User"}}{{end}}' \
+              "$image"
+          )"
+          test -z "$image_user"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$image")" = https://github.com/rio-se7/homelab-apps
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.title"}}' "$image")" = sqlite-snapshot
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.description"}}' "$image")" = "SQLite Online Backup tool for the k3s backup initContainer"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")" = "$GITHUB_SHA"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")" = "$version"
+          docker run --rm --platform linux/arm64 --network none "$image" -c 'sqlite3 -version'
+
+          docker run --rm --platform linux/arm64 --network none --read-only \
+            --tmpfs /work:rw,nosuid,nodev,size=16m \
+            --tmpfs /tmp:rw,nosuid,nodev,size=16m \
+            "$image" -ec '
+              test "$(id -u)" -eq 0
+              sqlite3 /work/source.db "CREATE TABLE samples(id INTEGER PRIMARY KEY, payload TEXT); WITH RECURSIVE seq(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM seq WHERE n<1000) INSERT INTO samples SELECT n, hex(randomblob(64)) FROM seq;"
+              sqlite3 /work/source.db ".backup /work/snapshot.db"
+              test -f /work/snapshot.db
+              test "$(wc -c </work/snapshot.db)" -gt 8192
+              test "$(sqlite3 /work/snapshot.db "PRAGMA integrity_check;")" = ok
+              test "$(sqlite3 /work/snapshot.db "SELECT count(*) FROM samples;")" = 1000
+            '
+
+          docker run --rm --platform linux/arm64 --network none --read-only \
+            --tmpfs /work:rw,nosuid,nodev,size=16m \
+            --tmpfs /tmp:rw,nosuid,nodev,size=16m \
+            "$image" -ec '
+              test "$(id -u)" -eq 0
+
+              wal_output="$(
+                printf "%s\n" \
+                  "PRAGMA journal_mode=WAL;" \
+                  "PRAGMA wal_autocheckpoint=0;" \
+                  "CREATE TABLE samples(id INTEGER PRIMARY KEY, payload TEXT);" \
+                  "WITH RECURSIVE seq(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM seq WHERE n<1000) INSERT INTO samples SELECT n, hex(randomblob(64)) FROM seq;" \
+                  ".shell /bin/sh -c \"if test -s /work/wal-source.db-wal; then echo WAL_PRESENT; else echo WAL_MISSING; fi\"" \
+                  ".backup /work/wal-snapshot.db" |
+                  sqlite3 -bail /work/wal-source.db
+              )"
+
+              printf "%s\n" "$wal_output" | grep -Fxq wal
+              printf "%s\n" "$wal_output" | grep -Fxq WAL_PRESENT
+              test -f /work/wal-snapshot.db
+              test "$(wc -c </work/wal-snapshot.db)" -gt 8192
+              test "$(sqlite3 /work/wal-source.db "SELECT count(*) FROM samples;")" = 1000
+              test "$(sqlite3 /work/wal-snapshot.db "SELECT count(*) FROM samples;")" = 1000
+              test "$(sqlite3 /work/wal-snapshot.db "SELECT count(*) FROM samples WHERE length(payload)=128;")" = 1000
+              test "$(sqlite3 /work/wal-snapshot.db "PRAGMA integrity_check;")" = ok
+            '
+
+          validated_image_id="$(docker image inspect --format '{{.Id}}' "$image")"
+          test "$validated_image_id" = "$image_id"
+          echo "SQLITE_SNAPSHOT_IMAGE=$image" >> "$GITHUB_ENV"
+          echo "SQLITE_SNAPSHOT_IMAGE_ID=$image_id" >> "$GITHUB_ENV"
+          echo "Validated image: $image"
+
+      - name: Publish validated image
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          publish_image_id="$(docker image inspect --format '{{.Id}}' "$SQLITE_SNAPSHOT_IMAGE")"
+          test "$publish_image_id" = "$SQLITE_SNAPSHOT_IMAGE_ID"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+          docker push "$SQLITE_SNAPSHOT_IMAGE"
+          printf 'Published image tag: %s\n' "$SQLITE_SNAPSHOT_IMAGE" >> "$GITHUB_STEP_SUMMARY"
